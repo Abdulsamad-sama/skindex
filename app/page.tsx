@@ -159,7 +159,7 @@ export default function Home() {
             <p className="text-body-lg text-on-surface-variant">Everything you need to know about our service</p>
           </motion.div>
 
-          <Accordion type="single" collapsible defaultValue="item-0" className="space-y-4">
+          <Accordion className="space-y-4">
             {faqs.map((faq, index) => (
               <AccordionItem key={index} value={`item-${index}`} className="border-0 rounded-2xl bg-white/80 backdrop-blur-sm hover:shadow-lg transition-all mb-4">
                 <AccordionTrigger className="px-4 py-4 text-base font-medium text-gray-800 hover:no-underline">

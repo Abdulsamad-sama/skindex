@@ -411,7 +411,7 @@ function RecCard({ rec, index }: RecCardProps): React.JSX.Element {
   const subtitle = rec.ingredient ?? rec.category ?? rec.type ?? "";
   const body = rec.reason ?? rec.description ?? "";
   return (
-    <div className={`rounded-2xl border border-white/10 bg-gradient-to-br ${REC_GRADIENTS[index % REC_GRADIENTS.length]} p-5 flex flex-col gap-2 hover:border-white/20 transition-all duration-300 hover:-translate-y-0.5`}>
+    <div className={`rounded-2xl border border-white/10 bg-linear-to-br ${REC_GRADIENTS[index % REC_GRADIENTS.length]} p-5 flex flex-col gap-2 hover:border-white/20 transition-all duration-300 hover:-translate-y-0.5`}>
       {subtitle && <span className="text-[10px] font-black uppercase tracking-widest text-white/50">{subtitle}</span>}
       <h4 className="font-bold text-white text-sm leading-tight">{title}</h4>
       {body && <p className="text-xs text-white/60 leading-relaxed">{body}</p>}
@@ -627,7 +627,7 @@ export default function DashboardPage(): React.JSX.Element {
               </span>
               <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-none">
                 Analysis{" "}
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-cyan-400">
+                <span className="text-transparent bg-clip-text bg-linear-to-r from-violet-400 to-cyan-400">
                   Results
                 </span>
               </h1>
@@ -668,7 +668,7 @@ export default function DashboardPage(): React.JSX.Element {
 
             {/* LEFT: Score + Metrics */}
             <div className="lg:col-span-4 flex flex-col gap-5">
-              <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-7 flex flex-col items-center gap-4">
+              <div className="rounded-3xl border border-white/10 bg-linear-to-br from-white/5 to-white/2 p-7 flex flex-col items-center gap-4">
                 <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Health Score</span>
                 {score !== null ? (
                   <ScoreRing score={score} />
@@ -688,7 +688,7 @@ export default function DashboardPage(): React.JSX.Element {
               </div>
 
               {metrics.length > 0 && (
-                <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-6 flex flex-col gap-4">
+                <div className="rounded-3xl border border-white/10 bg-linear-to-br from-white/5 to-white/2 p-6 flex flex-col gap-4">
                   <h3 className="text-xs font-black uppercase tracking-widest text-white/30 mb-1">Skin Metrics</h3>
                   {metrics.map((m) => {
                     const meta = METRIC_KEYS.find((mk) => mk.label.toLowerCase() === m.label.toLowerCase());
@@ -701,7 +701,7 @@ export default function DashboardPage(): React.JSX.Element {
             {/* RIGHT: Concerns + Recommendations */}
             <div className="lg:col-span-8 flex flex-col gap-5">
               {concerns.length > 0 && (
-                <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-6">
+                <div className="rounded-3xl border border-white/10 bg-linear-to-br from-white/5 to-white/2 p-6">
                   <div className="flex items-center gap-2 mb-5">
                     <span className="text-base">⚠️</span>
                     <h2 className="text-sm font-black uppercase tracking-widest text-white/50">Detected Concerns</h2>
@@ -718,7 +718,7 @@ export default function DashboardPage(): React.JSX.Element {
               )}
 
               {recommendations.length > 0 && (
-                <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-6">
+                <div className="rounded-3xl border border-white/10 bg-linear-to-br from-white/5 to-white/2 p-6">
                   <div className="flex items-center gap-2 mb-5">
                     <span className="text-base">✦</span>
                     <h2 className="text-sm font-black uppercase tracking-widest text-white/50">Precision Formulations</h2>
@@ -735,7 +735,7 @@ export default function DashboardPage(): React.JSX.Element {
               )}
 
               {concerns.length === 0 && recommendations.length === 0 && metrics.length === 0 && (
-                <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-8 flex flex-col items-center text-center gap-3">
+                <div className="rounded-3xl border border-white/10 bg-white/2 p-8 flex flex-col items-center text-center gap-3">
                   <span className="text-4xl">✅</span>
                   <h3 className="font-bold text-white">Your skin looks great!</h3>
                   <p className="text-sm text-white/40 max-w-xs">
@@ -759,9 +759,3 @@ export default function DashboardPage(): React.JSX.Element {
     </>
   );
 }
-
-
-
-
-
-
