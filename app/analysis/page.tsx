@@ -132,17 +132,6 @@ const capturePhoto = useCallback(async (): Promise<void> => {
 }, [loading, stopCamera, router]); 
 
 
-        // Store result for dashboard to consume
-        sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
-        stopCamera();
-        router.push("/dashboard");
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
-        setLoading(false);
-      }
-    }, "image/jpeg", 0.95);
-  }, [loading, stopCamera, router]);
-
   // ── Init camera + MediaPipe ────────────────────────────────────────────────
 
   const init = useCallback(async (): Promise<void> => {
