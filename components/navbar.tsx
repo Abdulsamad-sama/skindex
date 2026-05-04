@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "./ui/button";
+import { UserCircle } from "lucide-react"
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -33,11 +35,10 @@ export function Navbar() {
               <Link
                 key={link.href}
                 href={link.href}
-                className={`font-[family-name:var(--font-manrope)] text-sm font-medium transition-all duration-200 ${
-                  isActive
-                    ? "text-[#00C2B8] dark:text-[#40dcd1] border-b-2 border-[#00C2B8] dark:border-[#40dcd1] pb-1"
-                    : "text-slate-600 dark:text-slate-400 hover:text-[#00C2B8] dark:hover:text-[#40dcd1] hover:-translate-y-0.5"
-                }`}
+                className={`font-manrope text-sm font-medium transition-all duration-200 ${isActive
+                  ? "text-[#00C2B8] dark:text-[#40dcd1] border-b-2 border-[#00C2B8] dark:border-[#40dcd1] pb-1"
+                  : "text-slate-600 dark:text-slate-400 hover:text-[#00C2B8] dark:hover:text-[#40dcd1] hover:-translate-y-0.5"
+                  }`}
               >
                 {link.label}
               </Link>
@@ -48,9 +49,9 @@ export function Navbar() {
         {/* Right Actions */}
         <div className="flex items-center space-x-4">
           <ThemeToggle />
-          <button className="material-symbols-outlined text-slate-600 dark:text-slate-400 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
-            account_circle
-          </button>
+          <Button className="material-symbols-outlined text-slate-600 dark:text-slate-400 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+            <UserCircle />
+          </Button>
         </div>
       </div>
     </nav>

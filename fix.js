@@ -1,4 +1,5 @@
-const fs = require('fs');
+import fs from 'fs';
+
 let css = fs.readFileSync('app/globals.css', 'utf-8');
 css = css.replace(/--color-sk-/g, '--color-');
 css = css.replace(/--sk-/g, '--');

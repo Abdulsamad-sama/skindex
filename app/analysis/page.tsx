@@ -1,28 +1,128 @@
 "use client";
 
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useEffect, useRef, useState } from "react";
 
-export default function AnalysisPage() {
+// ─── MediaPipe Types ──────────────────────────────────────────────────────────
+
+type FaceDetectionBoundingBox = {
+  xCenter: number;
+  yCenter: number;
+  width: number;
+  height: number;
+};
+
+type FaceDetectionResult = {
+  detections?: Array<{
+    boundingBox: FaceDetectionBoundingBox;
+  }>;
+};
+
+type FaceDetectionInstance = {
+  setOptions: (options: {
+    model: string;
+    minDetectionConfidence: number;
+  }) => void;
+  onResults: (callback: (results: FaceDetectionResult) => void) => void;
+  send: (options: { image: HTMLVideoElement }) => Promise<void>;
+};
+
+type CameraInstance = {
+  start: () => void;
+  stop: () => void;
+};
+
+// ─── API Response Type (matches /api/skin/analyze) ───────────────────────────
+
+export type SkinAnalysisResult = Record<string, unknown>;
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export default function AnalysisPage(): React.JSX.Element {
+  const router = useRouter();
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
-
-  const cameraRef = useRef<any>(null);
+  const cameraRef = useRef<CameraInstance | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const faceDetectionRef = useRef<any>(null);
-  const hasCapturedRef = useRef(false);
+  const faceDetectionRef = useRef<FaceDetectionInstance | null>(null);
+  const hasCapturedRef = useRef<boolean>(false);
+  const stableCounter = useRef<number>(0);
 
-  const stableCounter = useRef(0);
-
-  const [isLocked, setIsLocked] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [isLocked, setIsLocked] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [ready, setReady] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<any>(null);
 
-  //  INIT CAMERA + MEDIAPIPE (LAZY)
-  const init = async () => {
+  // ── Stop camera ────────────────────────────────────────────────────────────
+
+  const stopCamera = useCallback((): void => {
+    cameraRef.current?.stop();
+    cameraRef.current = null;
+    streamRef.current?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
+
+  // ── Send image to API and navigate to dashboard ────────────────────────────
+
+  const capturePhoto = useCallback(async (): Promise<void> => {
+    if (!videoRef.current || loading) return;
+
+    setLoading(true);
+    setError(null);
+
+    const video = videoRef.current;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setLoading(false);
+      setError("Failed to get canvas context");
+      return;
+    }
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob(async (blob: Blob | null): Promise<void> => {
+      if (!blob) {
+        setLoading(false);
+        setError("Failed to capture image");
+        return;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append("file", blob, "face.jpg");
+
+        const res = await fetch(
+          "https://skin-analysis-production.up.railway.app/api/skin/analyze",
+          { method: "POST", body: formData }
+        );
+
+        const data = (await res.json()) as SkinAnalysisResult;
+
+        if (!res.ok) {
+          throw new Error((data?.message as string | undefined) ?? "Upload failed");
+        }
+
+        // Store result for dashboard to consume
+        sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
+        stopCamera();
+        router.push("/dashboard");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
+      }
+    }, "image/jpeg", 0.95);
+  }, [loading, stopCamera, router]);
+
+  // ── Init camera + MediaPipe ────────────────────────────────────────────────
+
+  const init = useCallback(async (): Promise<void> => {
     if (!videoRef.current) return;
 
     try {
@@ -37,16 +137,13 @@ export default function AnalysisPage() {
       streamRef.current = stream;
 
       const faceDetection = new FaceDetection({
-        locateFile: (file: string) =>
+        locateFile: (file: string): string =>
           `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
-      });
+      }) as FaceDetectionInstance;
 
-      faceDetection.setOptions({
-        model: "short",
-        minDetectionConfidence: 0.6,
-      });
+      faceDetection.setOptions({ model: "short", minDetectionConfidence: 0.6 });
 
-      faceDetection.onResults((results: any) => {
+      faceDetection.onResults((results: FaceDetectionResult): void => {
         if (!overlayCanvasRef.current || !videoRef.current) return;
 
         const canvas = overlayCanvasRef.current;
@@ -55,7 +152,6 @@ export default function AnalysisPage() {
 
         canvas.width = videoRef.current.videoWidth;
         canvas.height = videoRef.current.videoHeight;
-
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         const detection = results.detections?.[0];
@@ -67,42 +163,27 @@ export default function AnalysisPage() {
         }
 
         const box = detection.boundingBox;
-
         const faceWidth = box.width;
-        const faceCenterX = box.xCenter;
-        const faceCenterY = box.yCenter;
-
-        // ✅ Size: ~60–80% of frame (approx)
         const sizeValid = faceWidth > 0.4 && faceWidth < 0.8;
-
-        // ✅ Centered
         const centered =
-          Math.abs(faceCenterX - 0.5) < 0.15 &&
-          Math.abs(faceCenterY - 0.5) < 0.2;
-
+          Math.abs(box.xCenter - 0.5) < 0.15 &&
+          Math.abs(box.yCenter - 0.5) < 0.2;
         const valid = sizeValid && centered;
 
         if (valid) {
           stableCounter.current += 1;
-
-          if (
-            stableCounter.current > 15 &&
-            !loading &&
-            !hasCapturedRef.current
-          ) {
-            hasCapturedRef.current = true; // 🔥 lock forever (until reset)
+          if (stableCounter.current > 15 && !loading && !hasCapturedRef.current) {
+            hasCapturedRef.current = true;
             setIsLocked(true);
-            capturePhoto();
+            void capturePhoto();
           }
         } else {
           stableCounter.current = 0;
           setIsLocked(false);
         }
 
-        // 🎨 Draw bounding box
         ctx.strokeStyle = valid ? "lime" : "red";
         ctx.lineWidth = 3;
-
         ctx.strokeRect(
           box.xCenter * canvas.width - (faceWidth * canvas.width) / 2,
           box.yCenter * canvas.height - (box.height * canvas.height) / 2,
@@ -112,141 +193,103 @@ export default function AnalysisPage() {
       });
 
       const camera = new Camera(videoRef.current, {
-        onFrame: async () => {
+        onFrame: async (): Promise<void> => {
           if (videoRef.current) {
             await faceDetection.send({ image: videoRef.current });
           }
         },
         width: 640,
         height: 800,
-      });
+      }) as CameraInstance;
 
       camera.start();
-
       cameraRef.current = camera;
       faceDetectionRef.current = faceDetection;
-
       setReady(true);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
       setError("Failed to initialize camera");
     }
-  };
+  }, [loading, capturePhoto]);
 
-  // 🔴 STOP CAMERA
-  const stopCamera = () => {
-    cameraRef.current?.stop();
-    cameraRef.current = null;
+  // ── Restart ────────────────────────────────────────────────────────────────
 
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-
-    if (videoRef.current) videoRef.current.srcObject = null;
-  };
-
-  // 🟢 RESTART
-  const restartCamera = async () => {
+  const restartCamera = useCallback(async (): Promise<void> => {
     if (!cameraRef.current) {
       await init();
     }
-  };
+  }, [init]);
 
-  // 📸 CAPTURE + SEND
-  const capturePhoto = async () => {
-    if (!videoRef.current || loading) return;
+  // ── Upload fallback ────────────────────────────────────────────────────────
 
+  const handleUpload = async (file: File): Promise<void> => {
     setLoading(true);
-    stopCamera();
     setError(null);
 
-    const video = videoRef.current;
-    const canvas = document.createElement("canvas");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+      const res = await fetch(
+        "https://skin-analysis-production.up.railway.app/api/skin/analyze",
+        { method: "POST", body: formData }
+      );
 
-    const ctx = canvas.getContext("2d")!;
-    ctx.drawImage(video, 0, 0);
+      const data = (await res.json()) as SkinAnalysisResult;
 
-    canvas.toBlob(async (blob) => {
-      if (!blob) return;
-
-      try {
-        const formData = new FormData();
-        formData.append("file", blob, "face.jpg");
-
-        const res = await fetch(
-          "https://skin-analysis-production.up.railway.app/api/skin/analyze",
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
-
-        const data = await res.json();
-
-        if (!res.ok) throw new Error(data?.message || "Upload failed");
-
-        setResult(data);
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
+      if (!res.ok) {
+        throw new Error((data?.message as string | undefined) ?? "Upload failed");
       }
-    }, "image/jpeg", 0.95);
+
+      sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
+      stopCamera();
+      router.push("/dashboard");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // 📂 Upload fallback
-  const handleUpload = async (file: File) => {
-    setLoading(true);
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
-    const formData = new FormData();
-    formData.append("file", file);
+  useEffect((): (() => void) => {
+    let isMounted = true;
+    void (async (): Promise<void> => {
+      if (isMounted) await init();
+    })();
 
-    const res = await fetch(
-      "https://skin-analysis-production.up.railway.app/api/skin/analyze",
-      {
-        method: "POST",
-        body: formData,
-      }
-    );
-
-    const data = await res.json();
-    setResult(data);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    init();
-
-    const handleVisibility = () => {
+    const handleVisibility = (): void => {
       if (document.visibilityState === "hidden") {
         stopCamera();
       } else {
-        restartCamera();
+        void restartCamera();
       }
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
+    return (): void => {
+      isMounted = false;
       document.removeEventListener("visibilitychange", handleVisibility);
       stopCamera();
     };
-  }, []);
-  const resetCamera = () => {
+  }, [init, restartCamera, stopCamera]);
+
+  const resetCamera = useCallback((): void => {
     hasCapturedRef.current = false;
     stableCounter.current = 0;
     setIsLocked(false);
-    setResult(null);
-    init(); // restart camera
-  };
+    setError(null);
+    void init();
+  }, [init]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <main className="grow pt-24 pb-12 px-6 flex items-center justify-center">
       <div className="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-12 gap-lg items-center">
 
-        {/* LEFT SIDE (UNCHANGED) */}
+        {/* LEFT SIDE */}
         <div className="lg:col-span-5 space-y-lg">
           <span className="font-label-caps text-primary uppercase">Precision Scan</span>
           <h1 className="font-h1 text-display text-on-background">
@@ -259,10 +302,7 @@ export default function AnalysisPage() {
 
         {/* RIGHT SIDE */}
         <div className="lg:col-span-7 flex flex-col items-center">
-
           <div className="relative w-full aspect-4/2 bg-black rounded-[2rem] overflow-hidden">
-
-            {/* VIDEO */}
             <video
               ref={videoRef}
               autoPlay
@@ -270,21 +310,13 @@ export default function AnalysisPage() {
               muted
               className="absolute inset-0 w-full h-full object-cover"
             />
-
-            {/* DETECTION OVERLAY */}
             <canvas
               ref={overlayCanvasRef}
               className="absolute inset-0 w-full h-full"
             />
-
-            {/* OVAL GUIDE */}
             <div className="absolute inset-0 flex items-center justify-center">
-              <div
-                className={`guide-oval w-64 h-80 ${isLocked ? "border-green-400" : ""
-                  }`}
-              />
+              <div className={`guide-oval w-64 h-80 ${isLocked ? "border-green-400" : ""}`} />
             </div>
-
             {!ready && (
               <div className="absolute inset-0 flex items-center justify-center text-white">
                 Initializing camera...
@@ -292,37 +324,23 @@ export default function AnalysisPage() {
             )}
           </div>
 
-          {/* CONTROLS */}
           <div className="mt-lg flex flex-col gap-md">
-
-            <Button
-              disabled
-              className="w-full py-lg  text-white"
-            >
-              {loading ? "Analyzing..." : "Auto Capturing..."}
+            <Button disabled className="w-full py-lg text-white">
+              {loading ? "Analyzing…" : "Auto Capturing…"}
             </Button>
 
-            {<Button
-              onClick={resetCamera}
-            >
-              Retake
-            </Button>}
+            <Button onClick={resetCamera}>Retake</Button>
 
             <Input
               type="file"
               accept="image/png, image/jpeg"
-              onChange={(e) => {
-                if (e.target.files?.[0]) handleUpload(e.target.files[0]);
+              onChange={(e: React.ChangeEvent<HTMLInputElement>): void => {
+                const file = e.target.files?.[0];
+                if (file) void handleUpload(file);
               }}
             />
 
             {error && <p className="text-red-500 text-sm">{error}</p>}
-
-            {result && (
-              <pre className="text-xs bg-black text-white p-4 rounded-lg overflow-auto">
-                {JSON.stringify(result, null, 2)}
-              </pre>
-            )}
           </div>
         </div>
       </div>
@@ -338,68 +356,94 @@ export default function AnalysisPage() {
 
 
 
+
+
+
+
 // "use client";
 
-// import { useEffect, useRef, useState } from "react";
+// import { Button } from "@/components/ui/button";
+// import { Input } from "@/components/ui/input";
+// import { useCallback, useEffect, useRef, useState } from "react";
+
+// type FaceDetectionBoundingBox = {
+//   xCenter: number;
+//   yCenter: number;
+//   width: number;
+//   height: number;
+// };
+
+// type FaceDetectionResult = {
+//   detections?: Array<{
+//     boundingBox: FaceDetectionBoundingBox;
+//   }>;
+// };
+
+// type FaceDetectionInstance = {
+//   setOptions: (options: {
+//     model: string;
+//     minDetectionConfidence: number;
+//   }) => void;
+//   onResults: (callback: (results: FaceDetectionResult) => void) => void;
+//   send: (options: { image: HTMLVideoElement }) => Promise<void>;
+// };
+
+// type CameraInstance = {
+//   start: () => void;
+//   stop: () => void;
+// };
 
 // export default function AnalysisPage() {
 //   const videoRef = useRef<HTMLVideoElement>(null);
-//   const canvasRef = useRef<HTMLCanvasElement>(null);
+//   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
 
-//   const [stream, setStream] = useState<MediaStream | null>(null);
-//   const [loading, setLoading] = useState(false);
-//   const [result, setResult] = useState<any>(null);
+//   const cameraRef = useRef<CameraInstance | null>(null);
+//   const streamRef = useRef<MediaStream | null>(null);
+//   const faceDetectionRef = useRef<FaceDetectionInstance | null>(null);
+//   const hasCapturedRef = useRef(false);
+
+//   const stableCounter = useRef(0);
+
+//   const [isLocked, setIsLocked] = useState<boolean>(false);
+//   const [loading, setLoading] = useState<boolean>(false);
+//   const [ready, setReady] = useState<boolean>(false);
 //   const [error, setError] = useState<string | null>(null);
+//   const [result, setResult] = useState<string>("");
 
-//   //  Start camera
-//   useEffect(() => {
-//     const startCamera = async () => {
-//       try {
-//         const mediaStream = await navigator.mediaDevices.getUserMedia({
-//           video: {
-//             facingMode: "user",
-//           },
-//         });
 
-//         if (videoRef.current) {
-//           videoRef.current.srcObject = mediaStream;
-//         }
+//   // STOP CAMERA
+//   const stopCamera = useCallback(() => {
+//     cameraRef.current?.stop();
+//     cameraRef.current = null;
 
-//         setStream(mediaStream);
-//       } catch (err) {
-//         console.error(err);
-//         setError("Camera access denied");
-//       }
-//     };
+//     streamRef.current?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+//     streamRef.current = null;
 
-//     startCamera();
-
-//     return () => {
-//       stream?.getTracks().forEach((track) => track.stop());
-//     };
+//     if (videoRef.current) videoRef.current.srcObject = null;
 //   }, []);
 
-//   // 📸 Capture image
-//   const capturePhoto = async () => {
-//     if (!videoRef.current || !canvasRef.current) return;
+//   //  INIT CAMERA + MEDIAPIPE (LAZY)
+//   const capturePhoto = useCallback(async () => {
+//     if (!videoRef.current || loading) return;
 
 //     setLoading(true);
+
 //     setError(null);
 
 //     const video = videoRef.current;
-//     const canvas = canvasRef.current;
+//     const canvas = document.createElement("canvas");
 
-//     // Set canvas size to video resolution
 //     canvas.width = video.videoWidth;
 //     canvas.height = video.videoHeight;
 
 //     const ctx = canvas.getContext("2d");
-//     if (!ctx) return;
+//     if (!ctx) {
+//       setLoading(false);
+//       setError("Failed to get canvas context");
+//       return;
+//     }
+//     ctx.drawImage(video, 0, 0);
 
-//     // Draw frame
-//     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-//     // Convert to blob
 //     canvas.toBlob(async (blob) => {
 //       if (!blob) return;
 
@@ -415,105 +459,215 @@ export default function AnalysisPage() {
 //           }
 //         );
 
-//         const data = await res.json();
+//         const data = (await res.json()) as Record<string, unknown>;
 
-//         if (!res.ok) {
-//           throw new Error(data?.message || "Upload failed");
-//         }
+//         if (!res.ok) throw new Error((data?.message as string) || "Upload failed");
 
-//         setResult(data);
-//       } catch (err: any) {
-//         setError(err.message);
+//         setResult(JSON.stringify(data));
+//       } catch (err: unknown) {
+//         setError(err instanceof Error ? err.message : String(err));
 //       } finally {
 //         setLoading(false);
 //       }
-//     }, "image/jpeg", 0.9);
-//   };
+//     }, "image/jpeg", 0.95);
+//     stopCamera();
+//   }, [loading, stopCamera]);
 
-
-
-//   // 📂 Upload from gallery
-//   const handleUpload = async (file: File) => {
-//     setLoading(true);
-//     setError(null);
+//   const init = useCallback(async () => {
+//     if (!videoRef.current) return;
 
 //     try {
-//       const formData = new FormData();
-//       formData.append("file", file);
+//       const { FaceDetection } = await import("@mediapipe/face_detection");
+//       const { Camera } = await import("@mediapipe/camera_utils");
 
-//       const res = await fetch(
-//         "https://skin-analysis-production.up.railway.app/api/skin/analyze",
-//         {
-//           method: "POST",
-//           body: formData,
+//       const stream = await navigator.mediaDevices.getUserMedia({
+//         video: { facingMode: "user" },
+//       });
+
+//       videoRef.current.srcObject = stream;
+//       streamRef.current = stream;
+
+//       const faceDetection = new FaceDetection({
+//         locateFile: (file: string) =>
+//           `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
+//       }) as FaceDetectionInstance;
+
+//       faceDetection.setOptions({
+//         model: "short",
+//         minDetectionConfidence: 0.6,
+//       });
+
+//       faceDetection.onResults((results: FaceDetectionResult) => {
+//         if (!overlayCanvasRef.current || !videoRef.current) return;
+
+//         const canvas = overlayCanvasRef.current;
+//         const ctx = canvas.getContext("2d");
+//         if (!ctx) return;
+
+//         canvas.width = videoRef.current.videoWidth;
+//         canvas.height = videoRef.current.videoHeight;
+
+//         ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+//         const detection = results.detections?.[0];
+
+//         if (!detection) {
+//           stableCounter.current = 0;
+//           setIsLocked(false);
+//           return;
 //         }
-//       );
 
-//       const data = await res.json();
+//         const box = detection.boundingBox;
 
-//       if (!res.ok) {
-//         throw new Error(data?.message || "Upload failed");
-//       }
+//         const faceWidth = box.width;
+//         const faceCenterX = box.xCenter;
+//         const faceCenterY = box.yCenter;
 
-//       setResult(data);
-//     } catch (err: any) {
-//       setError(err.message);
-//     } finally {
-//       setLoading(false);
+//         // Size: ~60–80% of frame (approx)
+//         const sizeValid = faceWidth > 0.4 && faceWidth < 0.8;
+
+//         // Centered
+//         const centered =
+//           Math.abs(faceCenterX - 0.5) < 0.15 &&
+//           Math.abs(faceCenterY - 0.5) < 0.2;
+
+//         const valid = sizeValid && centered;
+
+//         if (valid) {
+//           stableCounter.current += 1;
+
+//           if (
+//             stableCounter.current > 15 &&
+//             !loading &&
+//             !hasCapturedRef.current
+//           ) {
+//             hasCapturedRef.current = true; // 🔥 lock forever (until reset)
+//             setIsLocked(true);
+//             capturePhoto();
+//           }
+//         } else {
+//           stableCounter.current = 0;
+//           setIsLocked(false);
+//         }
+
+//         // Draw bounding box
+//         ctx.strokeStyle = valid ? "lime" : "red";
+//         ctx.lineWidth = 3;
+
+//         ctx.strokeRect(
+//           box.xCenter * canvas.width - (faceWidth * canvas.width) / 2,
+//           box.yCenter * canvas.height - (box.height * canvas.height) / 2,
+//           faceWidth * canvas.width,
+//           box.height * canvas.height
+//         );
+//       });
+
+//       const camera = new Camera(videoRef.current, {
+//         onFrame: async () => {
+//           if (videoRef.current) {
+//             await faceDetection.send({ image: videoRef.current });
+//           }
+//         },
+//         width: 640,
+//         height: 800,
+//       }) as CameraInstance;
+
+//       camera.start();
+
+//       cameraRef.current = camera;
+//       faceDetectionRef.current = faceDetection;
+
+//       setReady(true);
+//     } catch (err) {
+//       console.error(err);
+//       setError("Failed to initialize camera");
 //     }
+//   }, [loading, capturePhoto]);
+
+//   //  RESTART
+//   const restartCamera = useCallback(async () => {
+//     if (!cameraRef.current) {
+//       await init();
+//     }
+//   }, [init]);
+
+//   //  Upload fallback
+//   const handleUpload = async (file: File): Promise<void> => {
+//     setLoading(true);
+
+//     const formData = new FormData();
+//     formData.append("file", file);
+
+//     const res = await fetch(
+//       "https://skin-analysis-production.up.railway.app/api/skin/analyze",
+//       {
+//         method: "POST",
+//         body: formData,
+//       }
+//     );
+
+//     const data = (await res.json()) as Record<string, unknown>;
+//     setResult(JSON.stringify(data));
+//     setLoading(false);
 //   };
+
+//   useEffect(() => {
+//     let isMounted = true;
+
+//     const initializeCamera = async (): Promise<void> => {
+//       if (isMounted) {
+//         await init();
+//       }
+//     };
+
+//     void initializeCamera();
+
+//     const handleVisibility = (): void => {
+//       if (document.visibilityState === "hidden") {
+//         stopCamera();
+//       } else {
+//         void restartCamera();
+//       }
+//     };
+
+//     document.addEventListener("visibilitychange", handleVisibility);
+
+//     return () => {
+//       isMounted = false;
+//       document.removeEventListener("visibilitychange", handleVisibility);
+//       stopCamera();
+//     };
+//   }, [init, restartCamera, stopCamera]);
+
+//   const resetCamera = useCallback(() => {
+//     hasCapturedRef.current = false;
+//     stableCounter.current = 0;
+//     setIsLocked(false);
+//     setResult("");
+//     init(); // restart camera
+//   }, [init]);
 
 //   return (
 //     <main className="grow pt-24 pb-12 px-6 flex items-center justify-center">
 //       <div className="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-12 gap-lg items-center">
 
-//         {/* LEFT SIDE (unchanged) */}
+//         {/* LEFT SIDE */}
 //         <div className="lg:col-span-5 space-y-lg">
-//           <div className="space-y-sm">
-//             <span className="font-label-caps text-primary uppercase">Precision Scan</span>
-//             <h1 className="font-h1 text-display text-on-background">Analyze your skin in seconds.</h1>
-//             <p className="font-body-lg text-on-surface-variant">Our AI-driven technology requires a clear, well-lit image to provide accurate clinical insights for your unique skin tone.</p>
-//           </div>
-//           <div className="space-y-md">
-//             <div className="flex items-start gap-md group">
-//               <div className="w-10 h-10 rounded-xl bg-primary-fixed flex items-center justify-center text-primary shrink-0 transition-transform group-hover:scale-110">
-//                 <span className="material-symbols-outlined" data-icon="light_mode">light_mode</span>
-//               </div>
-//               <div>
-//                 <h3 className="font-h3 text-on-surface">Natural Lighting</h3>
-//                 <p className="text-sm text-on-surface-variant">Face a window for even, soft light. Avoid harsh shadows or overhead lamps.</p>
-//               </div>
-//             </div>
-//             <div className="flex items-start gap-md group">
-//               <div className="w-10 h-10 rounded-xl bg-primary-fixed flex items-center justify-center text-primary shrink-0 transition-transform group-hover:scale-110">
-//                 <span className="material-symbols-outlined" data-icon="face">face</span>
-//               </div>
-//               <div>
-//                 <h3 className="font-h3 text-on-surface">Neutral Expression</h3>
-//                 <p className="text-sm text-on-surface-variant">Relax your facial muscles. Remove glasses or hair that obscures your skin.</p>
-//               </div>
-//             </div>
-//             <div className="flex items-start gap-md group">
-//               <div className="w-10 h-10 rounded-xl bg-primary-fixed flex items-center justify-center text-primary shrink-0 transition-transform group-hover:scale-110">
-//                 <span className="material-symbols-outlined" data-icon="center_focus_strong">center_focus_strong</span>
-//               </div>
-//               <div>
-//                 <h3 className="font-h3 text-on-surface">Stay Centered</h3>
-//                 <p className="text-sm text-on-surface-variant">Align your face with the guide for optimal surface area analysis.</p>
-//               </div>
-//             </div>
-//           </div>
-//           <div className="pt-base border-t border-surface-container-highest flex items-center gap-base">
-//             <span className="material-symbols-outlined text-primary" data-icon="verified_user">verified_user</span>
-//             <p className="text-xs font-medium text-on-surface-variant">HIPAA-compliant processing. Your data stays private and secure.</p>
-//           </div>
+//           <span className="font-label-caps text-primary uppercase">Precision Scan</span>
+//           <h1 className="font-h1 text-display text-on-background">
+//             Analyze your skin in seconds.
+//           </h1>
+//           <p className="font-body-lg text-on-surface-variant">
+//             Our AI-driven technology requires a clear, well-lit image to provide accurate clinical insights.
+//           </p>
 //         </div>
 
 //         {/* RIGHT SIDE */}
 //         <div className="lg:col-span-7 flex flex-col items-center">
 
-//           {/* 🎥 CAMERA VIEW */}
-//           <div className="relative w-full aspect-3/2 bg-black rounded-[2rem] overflow-hidden">
+//           <div className="relative w-full aspect-4/2 bg-black rounded-[2rem] overflow-hidden">
+
+//             {/* VIDEO */}
 //             <video
 //               ref={videoRef}
 //               autoPlay
@@ -522,48 +676,57 @@ export default function AnalysisPage() {
 //               className="absolute inset-0 w-full h-full object-cover"
 //             />
 
-//             {/* Hidden canvas */}
-//             <canvas ref={canvasRef} className="hidden" />
+//             {/* DETECTION OVERLAY */}
+//             <canvas
+//               ref={overlayCanvasRef}
+//               className="absolute inset-0 w-full h-full"
+//             />
 
-//             {/* Overlay */}
-//             <div className="absolute inset-0 flex flex-col justify-between p-6">
-//               <p className="text-white text-center text-sm">
-//                 Align your face within the guide
-//               </p>
+//             {/* OVAL GUIDE */}
+//             <div className="absolute inset-0 flex items-center justify-center">
+//               <div
+//                 className={`guide-oval w-64 h-80 ${isLocked ? "border-green-400" : ""
+//                   }`}
+//               />
 //             </div>
+
+//             {!ready && (
+//               <div className="absolute inset-0 flex items-center justify-center text-white">
+//                 Initializing camera...
+//               </div>
+//             )}
 //           </div>
 
 //           {/* CONTROLS */}
-//           <div className="mt-lg w-full flex flex-col gap-md">
+//           <div className="mt-lg flex flex-col gap-md">
 
-//             <button
-//               onClick={capturePhoto}
-//               disabled={loading}
-//               className="w-full bg-primary text-white py-lg rounded-2xl"
+//             <Button
+//               disabled
+//               className="w-full py-lg  text-white"
 //             >
-//               {loading ? "Analyzing..." : "Capture Photo"}
-//             </button>
+//               {loading ? "Analyzing..." : "Auto Capturing..."}
+//             </Button>
 
-//             <input
+//             {<Button
+//               onClick={resetCamera}
+//             >
+//               Retake
+//             </Button>}
+
+//             <Input
 //               type="file"
 //               accept="image/png, image/jpeg"
 //               onChange={(e) => {
-//                 if (e.target.files?.[0]) {
-//                   handleUpload(e.target.files[0]);
-//                 }
+//                 if (e.target.files?.[0]) handleUpload(e.target.files[0]);
 //               }}
 //             />
 
-//             {/* RESULT */}
+//             {error && <p className="text-red-500 text-sm">{error}</p>}
+
 //             {result && (
 //               <pre className="text-xs bg-black text-white p-4 rounded-lg overflow-auto">
 //                 {JSON.stringify(result, null, 2)}
 //               </pre>
-//             )}
-
-//             {/* ERROR */}
-//             {error && (
-//               <p className="text-red-500 text-sm">{error}</p>
 //             )}
 //           </div>
 //         </div>
@@ -571,4 +734,6 @@ export default function AnalysisPage() {
 //     </main>
 //   );
 // }
+
+
 
