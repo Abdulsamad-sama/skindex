@@ -552,7 +552,7 @@ export default function WeatherPage(): React.JSX.Element {
                 </p>
               </>
             ) : pageState.status === "error" ? (
-              <div className="max-w-sm">
+              <div>
                 <p className="text-4xl mb-4">⚠️</p>
                 <h2 className="font-h2 text-h2 mb-2">Couldn&apos;t load weather</h2>
                 <p className="text-on-surface-variant text-sm mb-6">{pageState.message}</p>
