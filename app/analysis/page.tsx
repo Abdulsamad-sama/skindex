@@ -66,48 +66,71 @@ export default function AnalysisPage(): React.JSX.Element {
     if (videoRef.current) videoRef.current.srcObject = null;
   }, []);
 
-  // ── Send image to API and navigate to dashboard ────────────────────────────
+  // -- Send JPEG File to API and navigate to dashboard --------------------------
 
-  const capturePhoto = useCallback(async (): Promise<void> => {
-    if (!videoRef.current || loading) return;
+const capturePhoto = useCallback(async (): Promise<void> => {
+  if (!videoRef.current || loading) return;
 
-    setLoading(true);
-    setError(null);
+  setLoading(true);
+  setError(null);
 
-    const video = videoRef.current;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+  const video = videoRef.current;
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      setLoading(false);
-      setError("Failed to get canvas context");
-      return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    setLoading(false);
+    setError("Failed to get canvas context");
+    return;
+  }
+  ctx.drawImage(video, 0, 0);
+
+  try {
+    // 1. Convert canvas to Blob using a Promise to avoid nested callbacks
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((result) => resolve(result), "image/jpeg", 0.95);
+    });
+
+    if (!blob) {
+      throw new Error("Failed to capture image blob");
     }
-    ctx.drawImage(video, 0, 0);
 
-    canvas.toBlob(async (blob: Blob | null): Promise<void> => {
-      if (!blob) {
-        setLoading(false);
-        setError("Failed to capture image");
-        return;
+    // 2. Create the JPEG File object (this is the "JPEG itself")
+    const file = new File([blob], "face.jpg", { type: "image/jpeg" });
+
+    // 3. Append the File object to FormData
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch(
+      "https://skin-analysis-production.up.railway.app/api/skin/analyze",
+      { 
+        method: "POST", 
+        body: formData 
       }
+    );
 
-      try {
-        const formData = new FormData();
-        formData.append("file", blob, "face.jpg");
+    const data = (await res.json()) as SkinAnalysisResult;
 
-        const res = await fetch(
-          "https://skin-analysis-production.up.railway.app/api/skin/analyze",
-          { method: "POST", body: formData }
-        );
+    if (!res.ok) {
+      throw new Error((data?.message as string | undefined) ?? "Upload failed");
+    }
 
-        const data = (await res.json()) as SkinAnalysisResult;
+    // Store result for dashboard to consume
+    sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
+    stopCamera();
+    router.push("/dashboard");
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    setError(errorMessage);
+    setLoading(false);
+    // Reset the capture ref so the user can try again if it fails
+    hasCapturedRef.current = false;
+  }
+}, [loading, stopCamera, router]); 
 
-        if (!res.ok) {
-          throw new Error((data?.message as string | undefined) ?? "Upload failed");
-        }
 
         // Store result for dashboard to consume
         sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
