@@ -382,7 +382,7 @@ export default function AnalysisPage(): React.JSX.Element {
             )}
           </div>
 
-          <div className="mt-lg flex flex-col gap-md w-full max-w-sm">
+          <div className="mt-lg flex flex-col gap-md ">
             {/* Only show retake button when capture/analysis failed */}
             {analysisFailed ? (
               <Button
@@ -393,7 +393,7 @@ export default function AnalysisPage(): React.JSX.Element {
                 Retake Photo
               </Button>
             ) : (
-              <Button disabled className="w-full py-lg text-white">
+              <Button disabled className="py-lg text-white">
                 {loading ? "Analyzing…" : "Auto Capturing…"}
               </Button>
             )}
