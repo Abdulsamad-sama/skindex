@@ -358,6 +358,7 @@ export default function AnalysisPage(): React.JSX.Element {
               autoPlay
               playsInline
               muted
+              disabled={loading}
               className="absolute inset-0 w-full h-full object-cover"
             />
             <canvas
