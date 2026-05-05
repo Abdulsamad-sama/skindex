@@ -34,7 +34,7 @@ type CameraInstance = {
   stop: () => void;
 };
 
-// ─── API Response Type (matches /api/skin/analyze) ───────────────────────────
+// ─── API Response Type ───────────────────────────────────────────────────────
 
 export type SkinAnalysisResult = Record<string, unknown>;
 
@@ -50,100 +50,133 @@ export default function AnalysisPage(): React.JSX.Element {
   const faceDetectionRef = useRef<FaceDetectionInstance | null>(null);
   const hasCapturedRef = useRef<boolean>(false);
   const stableCounter = useRef<number>(0);
+  const isStoppingRef = useRef<boolean>(false);
+  const initInProgressRef = useRef<boolean>(false);
 
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [ready, setReady] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [analysisFailed, setAnalysisFailed] = useState<boolean>(false);
 
   // ── Stop camera ────────────────────────────────────────────────────────────
 
   const stopCamera = useCallback((): void => {
-    cameraRef.current?.stop();
-    cameraRef.current = null;
-    streamRef.current?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
-  }, []);
-
-  // -- Send JPEG File to API and navigate to dashboard --------------------------
-
-const capturePhoto = useCallback(async (): Promise<void> => {
-  if (!videoRef.current || loading) return;
-
-  setLoading(true);
-  setError(null);
-
-  const video = videoRef.current;
-  const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    setLoading(false);
-    setError("Failed to get canvas context");
-    return;
-  }
-  ctx.drawImage(video, 0, 0);
-
-  try {
-    // 1. Convert canvas to Blob using a Promise to avoid nested callbacks
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((result) => resolve(result), "image/jpeg", 0.95);
-    });
-
-    if (!blob) {
-      throw new Error("Failed to capture image blob");
-    }
-
-    // 2. Create the JPEG File object (this is the "JPEG itself")
-    const file = new File([blob], "face.jpg", { type: "image/jpeg" });
-
-    // 3. Append the File object to FormData
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const res = await fetch(
-      "https://skin-analysis-production.up.railway.app/api/skin/analyze",
-      { 
-        method: "POST", 
-        body: formData 
-      }
-    );
-
-    const data = (await res.json()) as SkinAnalysisResult;
-
-    if (!res.ok) {
-      throw new Error((data?.message as string | undefined) ?? "Upload failed");
-    }
-
-    // Store result for dashboard to consume
-    sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
-    stopCamera();
-    router.push("/dashboard");
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    setError(errorMessage);
-    setLoading(false);
-    // Reset the capture ref so the user can try again if it fails
-    hasCapturedRef.current = false;
-  }
-}, [loading, stopCamera, router]); 
-
-
-  // ── Init camera + MediaPipe ────────────────────────────────────────────────
-
-  const init = useCallback(async (): Promise<void> => {
-    if (!videoRef.current) return;
+    if (isStoppingRef.current) return;
+    isStoppingRef.current = true;
 
     try {
+      cameraRef.current?.stop();
+      cameraRef.current = null;
+    } catch {
+      // Camera stop may throw if already stopped — safe to ignore
+    }
+
+    try {
+      streamRef.current?.getTracks().forEach((track: MediaStreamTrack) => {
+        track.stop();
+      });
+      streamRef.current = null;
+    } catch {
+      // Stream cleanup may throw — safe to ignore
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    faceDetectionRef.current = null;
+    setReady(false);
+    isStoppingRef.current = false;
+  }, []);
+
+  // ── Capture & analyze ──────────────────────────────────────────────────────
+
+  const captureAndAnalyze = useCallback(async (): Promise<void> => {
+    if (!videoRef.current || loading) return;
+
+    setLoading(true);
+    setError(null);
+    setAnalysisFailed(false);
+
+    const video = videoRef.current;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setLoading(false);
+      setError("Failed to get canvas context");
+      setAnalysisFailed(true);
+      return;
+    }
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob(async (blob: Blob | null): Promise<void> => {
+      if (!blob) {
+        setLoading(false);
+        setError("Failed to capture image");
+        setAnalysisFailed(true);
+        return;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append("file", blob, "face.jpg");
+
+        const res = await fetch(
+          "https://skin-analysis-production.up.railway.app/api/skin/analyze",
+          { method: "POST", body: formData }
+        );
+
+        const data = (await res.json()) as SkinAnalysisResult;
+
+        if (!res.ok) {
+          throw new Error((data?.message as string | undefined) ?? "Upload failed");
+        }
+
+        // Success — store result and navigate
+        sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
+        stopCamera();
+        router.push("/dashboard");
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        setAnalysisFailed(true);
+        stopCamera();
+      } finally {
+        setLoading(false);
+      }
+    }, "image/jpeg", 0.95);
+  }, [loading, stopCamera, router]);
+
+  // ── Initialize camera + MediaPipe ──────────────────────────────────────────
+
+  const initCamera = useCallback(async (): Promise<void> => {
+    if (!videoRef.current || initInProgressRef.current) return;
+
+    // Don't initialize if we're in a failed state waiting for retake
+    if (analysisFailed) return;
+
+    initInProgressRef.current = true;
+
+    try {
+      // Clean up any existing resources first
+      stopCamera();
+
       const { FaceDetection } = await import("@mediapipe/face_detection");
       const { Camera } = await import("@mediapipe/camera_utils");
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user" },
       });
+
+      if (!videoRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        initInProgressRef.current = false;
+        return;
+      }
 
       videoRef.current.srcObject = stream;
       streamRef.current = stream;
@@ -187,7 +220,7 @@ const capturePhoto = useCallback(async (): Promise<void> => {
           if (stableCounter.current > 15 && !loading && !hasCapturedRef.current) {
             hasCapturedRef.current = true;
             setIsLocked(true);
-            void capturePhoto();
+            void captureAndAnalyze();
           }
         } else {
           stableCounter.current = 0;
@@ -206,8 +239,8 @@ const capturePhoto = useCallback(async (): Promise<void> => {
 
       const camera = new Camera(videoRef.current, {
         onFrame: async (): Promise<void> => {
-          if (videoRef.current) {
-            await faceDetection.send({ image: videoRef.current });
+          if (videoRef.current && faceDetectionRef.current) {
+            await faceDetectionRef.current.send({ image: videoRef.current });
           }
         },
         width: 640,
@@ -219,26 +252,24 @@ const capturePhoto = useCallback(async (): Promise<void> => {
       faceDetectionRef.current = faceDetection;
       setReady(true);
     } catch (err: unknown) {
-      console.error(err);
-      setError("Failed to initialize camera");
+      console.error("Camera initialization failed:", err);
+      setError("Failed to initialize camera. Please check permissions.");
+    } finally {
+      initInProgressRef.current = false;
     }
-  }, [loading, capturePhoto]);
-
-  // ── Restart ────────────────────────────────────────────────────────────────
-
-  const restartCamera = useCallback(async (): Promise<void> => {
-    if (!cameraRef.current) {
-      await init();
-    }
-  }, [init]);
+  }, [analysisFailed, stopCamera, loading, captureAndAnalyze]);
 
   // ── Upload fallback ────────────────────────────────────────────────────────
 
-  const handleUpload = async (file: File): Promise<void> => {
+  const handleUpload = useCallback(async (file: File): Promise<void> => {
     setLoading(true);
     setError(null);
+    setAnalysisFailed(false);
 
     try {
+      // Stop camera if running
+      stopCamera();
+
       const formData = new FormData();
       formData.append("file", file);
 
@@ -254,46 +285,53 @@ const capturePhoto = useCallback(async (): Promise<void> => {
       }
 
       sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
-      stopCamera();
       router.push("/dashboard");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      setAnalysisFailed(true);
     } finally {
       setLoading(false);
     }
-  };
+  }, [stopCamera, router]);
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
+  // ── Reset (retake) ─────────────────────────────────────────────────────────
 
-  useEffect((): (() => void) => {
-    let isMounted = true;
-    void (async (): Promise<void> => {
-      if (isMounted) await init();
-    })();
-
-    const handleVisibility = (): void => {
-      if (document.visibilityState === "hidden") {
-        stopCamera();
-      } else {
-        void restartCamera();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibility);
-    return (): void => {
-      isMounted = false;
-      document.removeEventListener("visibilitychange", handleVisibility);
-      stopCamera();
-    };
-  }, [init, restartCamera, stopCamera]);
-
-  const resetCamera = useCallback((): void => {
+  const handleRetake = useCallback((): void => {
     hasCapturedRef.current = false;
     stableCounter.current = 0;
     setIsLocked(false);
     setError(null);
-    void init();
-  }, [init]);
+    setAnalysisFailed(false);
+    setLoading(false);
+    void initCamera();
+  }, [initCamera]);
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+  useEffect((): (() => void) => {
+    void initCamera();
+
+    const handleVisibility = (): void => {
+      if (document.visibilityState === "hidden") {
+        // Page/tab hidden — stop camera to save resources
+        stopCamera();
+      } else {
+        // Page visible again — restart only if not in failed state
+        if (!analysisFailed && !initInProgressRef.current && !cameraRef.current) {
+          void initCamera();
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return (): void => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      // Always stop camera on unmount
+      stopCamera();
+    };
+  }, [initCamera, stopCamera, analysisFailed]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -326,22 +364,39 @@ const capturePhoto = useCallback(async (): Promise<void> => {
               ref={overlayCanvasRef}
               className="absolute inset-0 w-full h-full"
             />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className={`guide-oval w-64 h-80 ${isLocked ? "border-green-400" : ""}`} />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className={`guide-oval w-64 h-80 border-2 border-white/30 rounded-full ${isLocked ? "border-green-400" : ""}`} />
             </div>
-            {!ready && (
-              <div className="absolute inset-0 flex items-center justify-center text-white">
-                Initializing camera...
+            {!ready && !error && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white">
+                <p className="text-lg font-medium">Initializing camera...</p>
+              </div>
+            )}
+            {error && analysisFailed && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-white">
+                <div className="text-center max-w-xs">
+                  <p className="text-red-400 font-bold mb-2">Capture Failed</p>
+                  <p className="text-sm text-white/70">{error}</p>
+                </div>
               </div>
             )}
           </div>
 
-          <div className="mt-lg flex flex-col gap-md">
-            <Button disabled className="w-full py-lg text-white">
-              {loading ? "Analyzing…" : "Auto Capturing…"}
-            </Button>
-
-            <Button onClick={resetCamera}>Retake</Button>
+          <div className="mt-lg flex flex-col gap-md w-full max-w-sm">
+            {/* Only show retake button when capture/analysis failed */}
+            {analysisFailed ? (
+              <Button
+                onClick={handleRetake}
+                className="w-full py-lg"
+                variant="default"
+              >
+                Retake Photo
+              </Button>
+            ) : (
+              <Button disabled className="w-full py-lg text-white">
+                {loading ? "Analyzing…" : "Auto Capturing…"}
+              </Button>
+            )}
 
             <Input
               type="file"
@@ -350,16 +405,19 @@ const capturePhoto = useCallback(async (): Promise<void> => {
                 const file = e.target.files?.[0];
                 if (file) void handleUpload(file);
               }}
+              disabled={loading}
+              className="cursor-pointer"
             />
 
-            {error && <p className="text-red-500 text-sm">{error}</p>}
+            {error && !analysisFailed && (
+              <p className="text-red-500 text-sm text-center">{error}</p>
+            )}
           </div>
         </div>
       </div>
     </main>
   );
 }
-
 
 
 
