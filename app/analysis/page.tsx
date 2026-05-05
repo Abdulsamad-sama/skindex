@@ -352,7 +352,7 @@ export default function AnalysisPage(): React.JSX.Element {
 
         {/* RIGHT SIDE */}
         <div className="lg:col-span-7 flex flex-col items-center">
-          <div className="relative w-full aspect-4/2 bg-black rounded-[2rem] overflow-hidden">
+          <div className="relative w-full aspect-3/4 md:aspect-4/2 bg-black rounded-[2rem] overflow-hidden">
             <video
               ref={videoRef}
               autoPlay
