@@ -1,7 +1,8 @@
 "use client";
 
-import { LocateFixedIcon, LocateIcon, Plus, Smile, Sun } from "lucide-react";
+import { Check, LocateFixedIcon, LocateIcon, Plus, Smile, Sun } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { MdCheckroom, MdOpacity } from "react-icons/md";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ type WeatherBriefRaw = {
   relative_humidity?: number | string;
 
   // Description
-  conditions?: string;
+  conditions?: string | string[];
   description?: string;
   weather?: string;
   weather_condition?: string;
@@ -113,100 +114,7 @@ type WeatherData = {
   routine: { time: string; title: string; description: string; highlight: boolean }[];
 };
 
-// ─── Mock scenarios for dev mode ──────────────────────────────────────────────
 
-type DevScenario = { label: string; emoji: string; data: WeatherBriefRaw };
-
-const DEV_SCENARIOS: DevScenario[] = [
-  {
-    label: "Tropical Heat",
-    emoji: "🌞",
-    data: {
-      temperature: 38,
-      feels_like: 42,
-      uv_index: 9,
-      humidity: 78,
-      conditions: "Tropical Heat Surge",
-      clothing_recommendation: "Ultra-light breathable fabric. Avoid dark colours.",
-      humidity_alert: "High humidity intensifies skin congestion and breakouts.",
-      air_quality: "Moderate",
-      wind_speed: 12,
-      city: "Lagos",
-      forecast: { morning: 28, noon: 38, evening: 30 },
-      routine: [
-        { time: "07:00", title: "Lightweight Hydration", description: "Oil-free gel moisturiser + SPF 50+ to withstand peak heat.", priority: false },
-        { time: "12:00", title: "Midday Mist Reset", description: "Facial mist reapplication and blot excess oil. No heavy retouch.", priority: true },
-        { time: "20:00", title: "Deep Cleanse & Repair", description: "Double cleanse to remove sweat and SPF. Apply niacinamide to calm skin.", priority: false },
-      ],
-    },
-  },
-  {
-    label: "Cold & Dry",
-    emoji: "🧊",
-    data: {
-      temperature: 8,
-      feels_like: 4,
-      uv_index: 2,
-      humidity: 18,
-      conditions: "Cold Dry Spell",
-      clothing_recommendation: "Layered wool base + waterproof outer shell.",
-      humidity_alert: "Critically dry air — skin barrier is under stress. Seal with occlusives.",
-      air_quality: "Good",
-      wind_speed: 22,
-      city: "Abuja",
-      forecast: { morning: 5, noon: 8, evening: 3 },
-      routine: [
-        { time: "08:00", title: "Barrier Prep", description: "Ceramide-rich cream before SPF. Skip water-thin serums today.", priority: false },
-        { time: "13:00", title: "Midday Oil Check", description: "Balancing mist only — skin is producing extra oil to compensate for dryness.", priority: false },
-        { time: "21:00", title: "Occlusive Lock-in", description: "Layer hyaluronic acid, then seal with a rich balm. Do not skip.", priority: true },
-      ],
-    },
-  },
-  {
-    label: "Mild & Rainy",
-    emoji: "🌧",
-    data: {
-      temperature: 22,
-      feels_like: 20,
-      uv_index: 3,
-      humidity: 88,
-      conditions: "Overcast Rain Showers",
-      clothing_recommendation: "Waterproof jacket, light layers underneath.",
-      humidity_alert: "Near-saturated air. Excess moisture may clog pores.",
-      air_quality: "Good",
-      wind_speed: 8,
-      city: "Port Harcourt",
-      forecast: { morning: 20, noon: 22, evening: 18 },
-      routine: [
-        { time: "08:30", title: "Minimal Moisture Base", description: "Lightweight gel hydration only — external humidity compensates.", priority: false },
-        { time: "14:00", title: "Anti-Congestion Check", description: "Blot and apply salicylic acid toner to prevent humidity-induced breakouts.", priority: true },
-        { time: "22:00", title: "Gentle Reset", description: "Micellar cleanse + lightweight retinol serum. Avoid heavy night creams.", priority: false },
-      ],
-    },
-  },
-  {
-    label: "Harmattan Haze",
-    emoji: "💨",
-    data: {
-      temperature: 32,
-      feels_like: 29,
-      uv_index: 7,
-      humidity: 12,
-      conditions: "Harmattan Dust Wind",
-      clothing_recommendation: "Cover exposed skin. Wear a light scarf around nose and mouth.",
-      humidity_alert: "Extreme dryness. Dust particles actively degrade skin barrier — protect immediately.",
-      air_quality: "Poor",
-      wind_speed: 35,
-      city: "Kano",
-      forecast: { morning: 24, noon: 32, evening: 20 },
-      routine: [
-        { time: "07:00", title: "Protective Shield Layer", description: "Heavy-duty SPF + barrier repair serum. Apply before stepping outside.", priority: true },
-        { time: "12:00", title: "Dust Defence Refresh", description: "Wipe face with a damp cloth, reapply barrier cream — do not use water alone.", priority: false },
-        { time: "20:00", title: "Intensive Recovery", description: "Full cleanse, then multi-layer hydration: toner → serum → occlusive balm.", priority: false },
-      ],
-    },
-  },
-];
 
 // ─── Normalise raw API response ────────────────────────────────────────────────
 
@@ -234,8 +142,11 @@ function normalise(raw: WeatherBriefRaw): WeatherData {
   const humidity =
     toNum(raw.humidity) ?? toNum(raw.relative_humidity);
 
+  const conditionsRaw = Array.isArray(raw.conditions)
+    ? raw.conditions.join(", ")
+    : raw.conditions;
   const conditions =
-    str(raw.conditions) || str(raw.description) || str(raw.weather) ||
+    str(conditionsRaw) || str(raw.description) || str(raw.weather) ||
     str(raw.weather_condition) || str(raw.summary) || "Current Conditions";
 
   const clothingTip =
@@ -376,74 +287,17 @@ function ForecastBar({ period, maxTemp, minTemp, isActive }: BarProps): React.JS
   );
 }
 
-// ─── Dev Panel ────────────────────────────────────────────────────────────────
 
-type DevPanelProps = {
-  activeScenario: number | null;
-  onSelect: (index: number) => void;
-  onReal: () => void;
-  isRealMode: boolean;
-  status: string;
+
+// ─── Routine response types ───────────────────────────────────────────────────
+
+type RoutineItem = { name: string; amazon_url: string; reason: string };
+
+type RoutineData = {
+  overall_score: number;
+  skincare_routine: RoutineItem[];
+  outfit_suggestions: RoutineItem[];
 };
-
-function DevPanel({ activeScenario, onSelect, onReal, isRealMode, status }: DevPanelProps): React.JSX.Element {
-  const [open, setOpen] = useState<boolean>(false);
-
-  return (
-    <div className="fixed bottom-24 left-4 z-50 flex flex-col items-start gap-2">
-      {open && (
-        <div className="bg-slate-950 border border-amber-500/40 rounded-2xl p-4 shadow-2xl w-64 mb-2">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
-              ⚡ Dev Mode
-            </span>
-            <span className="ml-auto text-[9px] text-slate-500 font-mono truncate max-w-[120px]">{status}</span>
-          </div>
-
-          <button
-            onClick={onReal}
-            className={`w-full mb-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${isRealMode
-              ? "bg-emerald-500/20 border border-emerald-500/50 text-emerald-400"
-              : "bg-white/5 border border-white/10 text-slate-400 hover:text-white"
-              }`}
-          >
-            {isRealMode ? "✓ Live API" : "↩ Switch to Live API"}
-          </button>
-
-          <p className="text-[10px] text-slate-600 uppercase tracking-wider font-bold mb-2 mt-3">
-            Mock Scenarios
-          </p>
-
-          <div className="flex flex-col gap-1.5">
-            {DEV_SCENARIOS.map((s, i) => (
-              <button
-                key={s.label}
-                onClick={(): void => onSelect(i)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all text-left ${activeScenario === i
-                  ? "bg-amber-500/20 border border-amber-500/50 text-amber-400"
-                  : "bg-white/5 border border-white/5 text-slate-400 hover:text-white hover:border-white/20"
-                  }`}
-              >
-                <span>{s.emoji}</span>
-                <span>{s.label}</span>
-                {activeScenario === i && <span className="ml-auto text-amber-400">✓</span>}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <button
-        onClick={(): void => setOpen((p) => !p)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950 border border-amber-500/40 text-amber-400 text-[10px] font-black uppercase tracking-widest shadow-lg hover:border-amber-400/70 transition-all"
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-        DEV
-        <span className="text-slate-600">{open ? "▲" : "▼"}</span>
-      </button>
-    </div>
-  );
-}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -456,26 +310,72 @@ type PageState =
 
 export default function WeatherPage(): React.JSX.Element {
   const [pageState, setPageState] = useState<PageState>({ status: "locating" });
-  const [devScenario, setDevScenario] = useState<number | null>(null);
-  const [isRealMode, setIsRealMode] = useState<boolean>(true);
+  const [routine, setRoutine] = useState<RoutineData | null>(null);
+  const [routineLoading, setRoutineLoading] = useState<boolean>(false);
   const coordsRef = useRef<{ lat: number; lon: number } | null>(null);
 
-  // ── Fetch from real API ──────────────────────────────────────────────────
+  // ── Fetch weather + routine ──────────────────────────────────────────────
 
-  const fetchWeather = useCallback(async (lat: number, lon: number): Promise<void> => {
+  const fetchAll = useCallback(async (lat: number, lon: number): Promise<void> => {
     setPageState({ status: "fetching", lat, lon });
     try {
-      const res = await fetch(
+      // 1. Weather brief
+      const weatherRes = await fetch(
         `https://skin-analysis-production.up.railway.app/api/weather/brief?lat=${lat}&lon=${lon}`
       );
-      if (!res.ok) throw new Error(`API error ${res.status}`);
-      const raw = (await res.json()) as WeatherBriefRaw;
-      setPageState({ status: "ok", data: normalise(raw), lat, lon });
+      if (!weatherRes.ok) throw new Error(`Weather API error ${weatherRes.status}`);
+      const weatherRaw = (await weatherRes.json()) as WeatherBriefRaw & {
+        temp_current?: number;
+        temp_min?: number;
+        temp_max?: number;
+        has_rain?: boolean;
+        conditions?: string[];
+        summary?: string;
+      };
+
+      // Map known brief shape onto WeatherBriefRaw for normalise()
+      const normaliseInput: WeatherBriefRaw = {
+        ...weatherRaw,
+        temperature: weatherRaw.temp_current ?? weatherRaw.temperature,
+        conditions: Array.isArray(weatherRaw.conditions)
+          ? weatherRaw.conditions.join(", ")
+          : weatherRaw.conditions,
+        summary: weatherRaw.summary,
+      };
+      setPageState({ status: "ok", data: normalise(normaliseInput), lat, lon });
+
+      // 2. Personalized routine (non-blocking — runs after weather is shown)
+      const dataUrl = sessionStorage.getItem("capturedImageDataUrl");
+      if (!dataUrl) return;
+
+      setRoutineLoading(true);
+      try {
+        const blobRes = await fetch(dataUrl);
+        const blob = await blobRes.blob();
+        const imageFile = new File([blob], "face.jpg", { type: "image/jpeg" });
+
+        const formData = new FormData();
+        formData.append("file", imageFile);
+
+        const routineRes = await fetch(
+          `https://skin-analysis-production.up.railway.app/api/routine/daily?lat=${lat}&lon=${lon}`,
+          { method: "POST", body: formData }
+        );
+        if (!routineRes.ok) throw new Error(`Routine API error ${routineRes.status}`);
+        const routineRaw = (await routineRes.json()) as RoutineData;
+        setRoutine(routineRaw);
+      } catch (routineErr: unknown) {
+        console.warn("Routine fetch failed:", routineErr);
+        // Don't block the page — weather data is already shown
+      } finally {
+        setRoutineLoading(false);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setPageState({ status: "error", message: msg });
     }
   }, []);
+
 
   // ── Geolocation on mount ─────────────────────────────────────────────────
 
@@ -489,46 +389,19 @@ export default function WeatherPage(): React.JSX.Element {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
         coordsRef.current = { lat, lon };
-        void fetchWeather(lat, lon);
+        void fetchAll(lat, lon);
       },
       (): void => {
         setPageState({ status: "no-location" });
       },
       { timeout: 8000 }
     );
-  }, [fetchWeather]);
-
-  // ── Dev scenario selection ───────────────────────────────────────────────
-
-  const handleDevSelect = (index: number): void => {
-    setDevScenario(index);
-    setIsRealMode(false);
-  };
-
-  const handleRealMode = (): void => {
-    setDevScenario(null);
-    setIsRealMode(true);
-    if (coordsRef.current) {
-      void fetchWeather(coordsRef.current.lat, coordsRef.current.lon);
-    } else {
-      setPageState({ status: "no-location" });
-    }
-  };
+  }, [fetchAll]);
 
   // ── Resolve displayed data ───────────────────────────────────────────────
 
-  const devData: WeatherData | null =
-    devScenario !== null ? normalise(DEV_SCENARIOS[devScenario].data) : null;
-
   const displayData: WeatherData | null =
-    devData ?? (pageState.status === "ok" ? pageState.data : null);
-
-  const devStatusLabel =
-    devScenario !== null
-      ? `mock: ${DEV_SCENARIOS[devScenario].label}`
-      : pageState.status === "ok"
-        ? `live ${pageState.lat.toFixed(2)},${pageState.lon.toFixed(2)}`
-        : pageState.status;
+    pageState.status === "ok" ? pageState.data : null;
 
   // ── Loading / error states ───────────────────────────────────────────────
 
@@ -556,9 +429,7 @@ export default function WeatherPage(): React.JSX.Element {
                 <p className="text-4xl mb-4">⚠️</p>
                 <h2 className="font-h2 text-h2 mb-2">Couldn&apos;t load weather</h2>
                 <p className="text-on-surface-variant text-sm mb-6">{pageState.message}</p>
-                <p className="text-xs text-on-surface-variant/60">
-                  Use the <span className="text-amber-400 font-bold">DEV</span> panel (bottom-left) to preview with mock data.
-                </p>
+
               </div>
             ) : (
               <div className="max-w-sm">
@@ -567,21 +438,11 @@ export default function WeatherPage(): React.JSX.Element {
                 <p className="text-on-surface-variant text-sm mb-6">
                   Allow location access so we can fetch your local weather conditions for a personalised skin routine.
                 </p>
-                <p className="text-xs text-on-surface-variant/60">
-                  Or use the <span className="text-amber-400 font-bold">DEV</span> panel (bottom-left) to preview with mock data.
-                </p>
+
               </div>
             )}
           </div>
         </main>
-
-        <DevPanel
-          activeScenario={devScenario}
-          onSelect={handleDevSelect}
-          onReal={handleRealMode}
-          isRealMode={isRealMode}
-          status={devStatusLabel}
-        />
       </>
     );
   }
@@ -704,7 +565,7 @@ export default function WeatherPage(): React.JSX.Element {
               {/* Clothing */}
               <div className="bg-surface-container-lowest border border-slate-200 dark:border-slate-800 rounded-xl p-md shadow-sm flex items-start gap-md">
                 <div className="p-3 bg-secondary-fixed rounded-lg shrink-0">
-                  <span className="material-symbols-outlined text-on-secondary-fixed" data-icon="checkroom">checkroom</span>
+                  <span className="material-symbols-outlined text-on-secondary-fixed" data-icon="checkroom"><MdCheckroom /></span>
                 </div>
                 <div>
                   <span className="font-label-caps text-label-caps text-secondary mb-1 block">CLOTHING RECOMMENDATION</span>
@@ -716,7 +577,7 @@ export default function WeatherPage(): React.JSX.Element {
               {/* Humidity alert */}
               <div className="bg-surface-container-lowest border border-slate-200 dark:border-slate-800 rounded-xl p-md shadow-sm flex items-start gap-md">
                 <div className="p-3 bg-tertiary-fixed rounded-lg shrink-0">
-                  <span className="material-symbols-outlined text-on-tertiary-fixed" data-icon="opacity">opacity</span>
+                  <span className="material-symbols-outlined text-on-tertiary-fixed" data-icon="opacity"><MdOpacity /></span>
                 </div>
                 <div>
                   <span className="font-label-caps text-label-caps text-tertiary mb-1 block">SKIN ALERT</span>
@@ -735,103 +596,95 @@ export default function WeatherPage(): React.JSX.Element {
 
           {/* ── RIGHT COLUMN ─────────────────────────────────────────────── */}
           <aside className="lg:col-span-4 flex flex-col gap-gutter">
-            {/* Dynamic Routine Card */}
+
+            {/* Precision Score Banner */}
+            {routine && (
+              <div className="p-md rounded-xl bg-primary text-white flex justify-between items-center shadow-lg shadow-primary/20">
+                <div>
+                  <p className="text-xs font-bold uppercase opacity-80">Precision Score</p>
+                  <p className="font-h2 text-h2 font-black">{routine.overall_score}% Match</p>
+                </div>
+                <div className="h-12 w-12 rounded-full border-4 border-white/30 flex items-center justify-center font-black text-xl">
+                  ✓
+                </div>
+              </div>
+            )}
+
+            {/* Skincare Products */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-lg relative">
               <div className="absolute inset-0 bg-linear-to-b from-[#00C2B8]/5 to-transparent pointer-events-none" />
               <div className="p-md">
                 <div className="flex items-center justify-between mb-md">
-                  <h3 className="font-h2 text-h2">Dynamic Routine</h3>
+                  <h3 className="font-h2 text-h2">Recommended Products</h3>
                   <span className="material-symbols-outlined text-primary" data-icon="auto_awesome"><Smile /></span>
                 </div>
 
-                {d.routine.length > 0 ? (
+                {routineLoading && (
+                  <div className="flex items-center gap-2 py-4">
+                    <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                    <p className="text-sm text-on-surface-variant">Loading your personalized routine…</p>
+                  </div>
+                )}
+
+                {!routineLoading && !routine && (
+                  <p className="text-sm text-on-surface-variant italic py-4">
+                    Complete a skin scan on the Analysis page to see your personalized routine.
+                  </p>
+                )}
+
+                {routine && routine.skincare_routine.length > 0 && (
                   <div className="space-y-md">
-                    {d.routine.map((step, i) => (
+                    {routine.skincare_routine.map((item: RoutineItem, i: number) => (
                       <div
                         key={i}
-                        className={`flex gap-md items-start p-base rounded-lg transition-colors group ${step.highlight
-                          ? "bg-primary-container/10 border border-primary-container/20"
-                          : "hover:bg-surface-container-low"
-                          }`}
+                        className="p-base rounded-lg border border-slate-100 dark:border-slate-800 hover:bg-surface-container-low transition-colors"
                       >
-                        <span
-                          className={`font-label-caps text-label-caps w-12 pt-1 shrink-0 ${step.highlight ? "text-primary" : "text-on-surface-variant"
-                            }`}
+                        <p className="font-bold text-sm text-on-surface mb-1">{item.name}</p>
+                        <p className="text-xs text-on-surface-variant mb-2">{item.reason}</p>
+                        <a
+                          href={item.amazon_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-[10px] font-black text-primary uppercase tracking-wider hover:underline"
                         >
-                          {step.time}
-                        </span>
-                        <div>
-                          <p
-                            className={`font-h3 text-sm font-bold transition-colors ${step.highlight ? "text-primary" : "group-hover:text-primary"
-                              }`}
-                          >
-                            {step.title}
-                          </p>
-                          <p className="text-xs text-on-surface-variant">{step.description}</p>
-                        </div>
+                          <LocateIcon size={10} /> Buy on Amazon
+                        </a>
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p className="text-sm text-on-surface-variant italic py-4">
-                    No routine steps returned by the API for these conditions.
-                  </p>
                 )}
+              </div>
+            </div>
 
-                <div className="mt-md relative h-32 rounded-lg overflow-hidden group bg-surface-container flex items-center justify-center">
-                  <div className="text-center p-4">
-                    <p className="text-xs font-bold text-on-surface-variant mb-2">
-                      Weather-adaptive routine loaded
-                    </p>
-                    <div className="flex justify-center gap-3">
-                      {d.uvIndex !== null && (
-                        <div className="text-center">
-                          <p className={`text-lg font-black ${uvColour(d.uvIndex)}`}>{Math.round(d.uvIndex)}</p>
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant">UV</p>
-                        </div>
-                      )}
-                      {d.humidity !== null && (
-                        <div className="text-center">
-                          <p className="text-lg font-black text-sky-500">{Math.round(d.humidity)}%</p>
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant">HUMID</p>
-                        </div>
-                      )}
-                      {d.currentTemp !== null && (
-                        <div className="text-center">
-                          <p className="text-lg font-black text-[#00C2B8]">{Math.round(d.currentTemp)}°</p>
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant">TEMP</p>
-                        </div>
-                      )}
+            {/* Outfit Suggestions */}
+            {routine && routine.outfit_suggestions.length > 0 && (
+              <div className="glass p-md rounded-xl border border-slate-200 dark:border-slate-800">
+                <span className="font-label-caps text-label-caps text-on-surface-variant block mb-base">APPAREL STRATEGY</span>
+                <div className="space-y-base">
+                  {routine.outfit_suggestions.map((item: RoutineItem, i: number) => (
+                    <div key={i} className="p-base rounded-lg bg-surface-container">
+                      <p className="font-bold text-sm text-on-surface mb-1">{item.name}</p>
+                      <p className="text-xs text-on-surface-variant mb-2">{item.reason}</p>
+                      <a
+                        href={item.amazon_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[10px] font-black text-primary uppercase tracking-wider hover:underline"
+                      >
+                        <LocateIcon size={10} /> Buy on Amazon
+                      </a>
                     </div>
-                  </div>
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Local Analysis map placeholder */}
-            <div className="glass p-md rounded-xl border border-slate-200 dark:border-slate-800">
-              <span className="font-label-caps text-label-caps text-on-surface-variant block mb-base">LOCAL ANALYSIS MAP</span>
-              <div className="h-32 bg-surface-container rounded-lg overflow-hidden relative flex items-center justify-center">
-                {coordsRef.current ? (
-                  <>
-                    <div className="absolute inset-0 bg-linear-to-br from-teal-500/10 to-sky-500/10" />
-                    <div className="text-center relative z-10">
-                      <div className="w-4 h-4 bg-[#00C2B8] dark:bg-[#40dcd1] rounded-full animate-ping absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-                      <div className="w-3 h-3 bg-[#00C2B8] dark:bg-[#40dcd1] rounded-full border-2 border-white shadow-md absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-xs text-on-surface-variant text-center px-4">
-                    Location unavailable — map view requires geolocation access.
-                  </p>
-                )}
-              </div>
-              <p className="font-body-md text-xs mt-base text-on-surface-variant">
-                {coordsRef.current
-                  ? `Lat ${coordsRef.current.lat.toFixed(3)}, Long ${coordsRef.current.lon.toFixed(3)} — analyzing local air conditions.`
-                  : "Enable location access to view your local air quality analysis."}
+            {/* Coords indicator */}
+            {coordsRef.current && (
+              <p className="font-body-md text-xs text-on-surface-variant">
+                Lat {coordsRef.current.lat.toFixed(3)}, Long {coordsRef.current.lon.toFixed(3)} — live sync active.
               </p>
-            </div>
+            )}
           </aside>
         </div>
       </main>
@@ -842,15 +695,7 @@ export default function WeatherPage(): React.JSX.Element {
         <span className="font-bold text-sm hidden md:block">Update Skin Log</span>
       </button>
 
-      <DevPanel
-        activeScenario={devScenario}
-        onSelect={handleDevSelect}
-        onReal={handleRealMode}
-        isRealMode={isRealMode}
-        status={devStatusLabel}
-      />
+
     </>
   );
 }
-
-

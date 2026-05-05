@@ -83,126 +83,7 @@ type RawSkinAnalysis = {
   [key: string]: unknown;
 };
 
-// ─── Dev scenarios ────────────────────────────────────────────────────────────
 
-type DevScenario = { label: string; emoji: string; tag: string; data: RawSkinAnalysis };
-
-const DEV_SCENARIOS: DevScenario[] = [
-  {
-    label: "Healthy Glow",
-    emoji: "✨",
-    tag: "Good",
-    data: {
-      health_score: 87,
-      skin_type: "Combination",
-      age_estimate: 28,
-      hydration: 76,
-      elasticity: 84,
-      luminosity: 79,
-      sensitivity: 12,
-      uv_damage: 8,
-      oiliness: 35,
-      pores: 22,
-      texture: 81,
-      concerns: [
-        { name: "Mild Dehydration", severity: "low", description: "Slight moisture deficit in the T-zone. Increase water intake.", priority: false },
-      ],
-      recommendations: [
-        { product: "Hydra-Boost Serum", ingredient: "Hyaluronic Acid", reason: "Replenish moisture to the T-zone and lock in hydration.", category: "Hydration" },
-        { product: "Glow Activator", ingredient: "Niacinamide 10%", reason: "Maintain luminosity and refine open pores.", category: "Radiance" },
-        { product: "Daily Shield SPF 50", ingredient: "Zinc Oxide", reason: "Protect against low UV exposure and prevent premature ageing.", category: "Protection" },
-      ],
-    },
-  },
-  {
-    label: "Acne-Prone",
-    emoji: "🔴",
-    tag: "Needs Attention",
-    data: {
-      health_score: 52,
-      skin_type: "Oily",
-      age_estimate: 22,
-      hydration: 38,
-      elasticity: 70,
-      luminosity: 44,
-      sensitivity: 68,
-      uv_damage: 14,
-      oiliness: 82,
-      acne: 71,
-      pores: 76,
-      texture: 40,
-      concerns: [
-        { name: "Active Acne", severity: "high", description: "Moderate comedonal and inflammatory lesions across T-zone and cheeks.", priority: true, intensity: 71 },
-        { name: "Excess Sebum", severity: "high", description: "Overactive sebaceous glands detected. Pore congestion likely.", priority: true },
-        { name: "Dehydration", severity: "medium", description: "Skin appears tight despite oiliness — a common paradox.", priority: false },
-      ],
-      recommendations: [
-        { product: "Salicylic Cleanser", ingredient: "Salicylic Acid 2%", reason: "Dissolve excess sebum and clear blocked follicles.", category: "Clarifying" },
-        { product: "Benzoyl Spot Gel", ingredient: "Benzoyl Peroxide 5%", reason: "Target active lesions and reduce bacterial load.", category: "Treatment" },
-        { product: "Oil-Free Gel Moisturiser", ingredient: "Centella Asiatica", reason: "Hydrate without clogging pores. Essential for dehydrated-oily skin.", category: "Hydration" },
-        { product: "Niacinamide B3 Serum", ingredient: "Niacinamide 10%", reason: "Regulate sebum production and fade post-acne marks.", category: "Control" },
-      ],
-    },
-  },
-  {
-    label: "Hyperpigmented",
-    emoji: "🌑",
-    tag: "Priority",
-    data: {
-      health_score: 65,
-      skin_type: "Normal-Dry",
-      age_estimate: 35,
-      hydration: 62,
-      elasticity: 74,
-      luminosity: 38,
-      sensitivity: 28,
-      uv_damage: 54,
-      dark_spots: 72,
-      hyperpigmentation_score: 68,
-      texture: 58,
-      concerns: [
-        { name: "Hyperpigmentation", severity: "high", description: "Post-inflammatory and solar-induced discolouration in cheek region.", location: "Bilateral cheeks", priority: true, intensity: "68%" },
-        { name: "UV Damage", severity: "moderate", description: "Cumulative sun exposure accelerating melanin production.", priority: true },
-        { name: "Uneven Texture", severity: "low", description: "Surface roughness from repeated inflammation cycles.", priority: false },
-      ],
-      recommendations: [
-        { product: "C-Glow 15% Serum", ingredient: "Vitamin C (L-Ascorbic Acid)", reason: "Inhibit tyrosinase and neutralise free radicals causing discolouration.", category: "Brightening" },
-        { product: "Alpha Arbutin 2%", ingredient: "Alpha Arbutin", reason: "Reduce melanin synthesis at the source for even skin tone.", category: "Brightening" },
-        { product: "Broad-Spectrum SPF 50+", ingredient: "Titanium Dioxide", reason: "Prevent further UV-induced pigmentation. Non-negotiable.", category: "Protection" },
-        { product: "AHA Resurfacer", ingredient: "Glycolic Acid 8%", reason: "Accelerate cell turnover to fade existing dark spots.", category: "Exfoliation" },
-      ],
-    },
-  },
-  {
-    label: "Dry & Sensitive",
-    emoji: "🌵",
-    tag: "Protective",
-    data: {
-      health_score: 59,
-      skin_type: "Dry-Sensitive",
-      age_estimate: 42,
-      hydration: 24,
-      elasticity: 55,
-      luminosity: 49,
-      sensitivity: 88,
-      uv_damage: 22,
-      redness: 64,
-      texture: 43,
-      pores: 14,
-      concerns: [
-        { name: "Impaired Barrier", severity: "high", description: "Transepidermal water loss significantly elevated. Barrier function compromised.", priority: true },
-        { name: "Chronic Redness", severity: "moderate", description: "Vasodilation and reactive flushing pattern detected across nasal bridge and cheeks.", location: "Nasal bridge, cheeks", priority: true },
-        { name: "Fine Lines", severity: "low", description: "Early periorbital fine lines linked to dehydration, not age.", priority: false },
-      ],
-      recommendations: [
-        { product: "Ceramide Repair Cream", ingredient: "Ceramides NP + AP", reason: "Restore lipid matrix and seal compromised barrier function.", category: "Repair" },
-        { product: "Azelaic Acid 10%", ingredient: "Azelaic Acid", reason: "Calm redness, reduce erythema, and improve skin evenness gently.", category: "Calming" },
-        { product: "Squalane Oil", ingredient: "Squalane", reason: "Occlusive hydration without irritation. Perfect for reactive skin.", category: "Moisturising" },
-        { product: "Mineral SPF 30", ingredient: "Zinc Oxide", reason: "Mineral-only formula to avoid chemical filter irritation.", category: "Protection" },
-      ],
-    },
-  },
-];
 
 // ─── Normalisation helpers ────────────────────────────────────────────────────
 
@@ -339,7 +220,7 @@ const CONSUMED_KEYS = new Set([
   "sensitivity", "uv_damage", "oiliness", "pores", "acne", "wrinkles", "dark_spots", "redness", "texture",
   "firmness", "radiance", "brightness", "sebum", "erythema", "fine_lines", "blemishes", "uv",
   "hyperpigmentation_score", "concerns", "issues", "detected_concerns", "conditions", "skin_issues",
-  "recommendations", "routine", "products", "ingredients", "suggested_ingredients","skin_concerns",
+  "recommendations", "routine", "products", "ingredients", "suggested_ingredients", "skin_concerns",
 ]);
 
 function extractExtras(raw: RawSkinAnalysis): ExtraField[] {
@@ -486,79 +367,7 @@ function ExtrasTable({ extras }: ExtrasProps): React.JSX.Element | null {
   );
 }
 
-// ─── Dev Panel ────────────────────────────────────────────────────────────────
 
-type DevPanelProps = {
-  activeScenario: number | null;
-  onSelect: (i: number) => void;
-  onReal: () => void;
-  isRealMode: boolean;
-};
-
-function DevPanel({ activeScenario, onSelect, onReal, isRealMode }: DevPanelProps): React.JSX.Element {
-  const [open, setOpen] = useState<boolean>(false);
-
-  return (
-    <div className="fixed bottom-8 left-4 z-50 flex flex-col items-start gap-2">
-      {open && (
-        <div className="bg-slate-950 border border-amber-500/40 rounded-2xl p-4 shadow-2xl w-64 mb-2">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">⚡ Dev Mode</span>
-            <span className={`ml-auto text-[9px] font-mono font-bold px-2 py-0.5 rounded-full ${isRealMode ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"
-              }`}>
-              {isRealMode ? "LIVE" : "MOCK"}
-            </span>
-          </div>
-
-          <button
-            onClick={onReal}
-            className={`w-full mb-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${isRealMode
-              ? "bg-emerald-500/20 border border-emerald-500/50 text-emerald-400"
-              : "bg-white/5 border border-white/10 text-slate-400 hover:text-white"
-              }`}
-          >
-            {isRealMode ? "✓ Reading from sessionStorage" : "↩ Switch to Live Data"}
-          </button>
-
-          <p className="text-[10px] text-slate-600 uppercase tracking-wider font-bold mb-2 mt-3">Mock Scenarios</p>
-
-          <div className="flex flex-col gap-1.5">
-            {DEV_SCENARIOS.map((s, i) => (
-              <button
-                key={s.label}
-                onClick={(): void => onSelect(i)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all text-left ${activeScenario === i
-                  ? "bg-amber-500/20 border border-amber-500/50 text-amber-400"
-                  : "bg-white/5 border border-white/5 text-slate-400 hover:text-white hover:border-white/20"
-                  }`}
-              >
-                <span>{s.emoji}</span>
-                <span>{s.label}</span>
-                <span className={`ml-auto text-[9px] px-1.5 py-0.5 rounded-full ${s.tag === "Good" ? "bg-emerald-500/20 text-emerald-400" :
-                  s.tag === "Priority" ? "bg-rose-500/20 text-rose-400" :
-                    "bg-amber-500/20 text-amber-400"
-                  }`}>{s.tag}</span>
-              </button>
-            ))}
-          </div>
-
-          <p className="text-[9px] text-slate-700 mt-4 leading-relaxed">
-            Scenarios override sessionStorage data. Switch back to live to read from the real API response.
-          </p>
-        </div>
-      )}
-
-      <button
-        onClick={(): void => setOpen((p) => !p)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950 border border-amber-500/40 text-amber-400 text-[10px] font-black uppercase tracking-widest shadow-lg hover:border-amber-400/70 transition-all"
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-        DEV
-        <span className="text-slate-600">{open ? "▲" : "▼"}</span>
-      </button>
-    </div>
-  );
-}
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
@@ -571,8 +380,7 @@ function EmptyState({ onRetake }: EmptyStateProps): React.JSX.Element {
         <div className="text-6xl mb-6">🔬</div>
         <h2 className="text-2xl font-black text-white mb-3">No analysis found</h2>
         <p className="text-white/50 text-sm mb-8">
-          Run a scan first, or use the{" "}
-          <span className="text-amber-400 font-bold">DEV</span> panel (bottom-left) to preview with mock data.
+          Run a scan first to see your skin analysis results.
         </p>
         <button
           onClick={onRetake}
@@ -590,8 +398,6 @@ function EmptyState({ onRetake }: EmptyStateProps): React.JSX.Element {
 export default function DashboardPage(): React.JSX.Element {
   const router = useRouter();
   const [raw, setRaw] = useState<RawSkinAnalysis | null>(null);
-  const [devScenario, setDevScenario] = useState<number | null>(null);
-  const [isRealMode, setIsRealMode] = useState<boolean>(true);
   const [showRaw, setShowRaw] = useState<boolean>(false);
 
   useEffect((): void => {
@@ -601,38 +407,17 @@ export default function DashboardPage(): React.JSX.Element {
     }
   }, []);
 
-  const handleDevSelect = (index: number): void => {
-    setDevScenario(index);
-    setIsRealMode(false);
-  };
-
-  const handleRealMode = (): void => {
-    setDevScenario(null);
-    setIsRealMode(true);
-  };
-
   const handleRetake = (): void => {
     sessionStorage.removeItem("skinAnalysisResult");
     router.push("/analysis");
   };
 
   // Resolve which data to display
-  const displayRaw: RawSkinAnalysis | null =
-    devScenario !== null ? DEV_SCENARIOS[devScenario].data : raw;
+  const displayRaw: RawSkinAnalysis | null = raw;
 
   // No data + no dev scenario = empty state
   if (!displayRaw) {
-    return (
-      <>
-        <EmptyState onRetake={handleRetake} />
-        <DevPanel
-          activeScenario={devScenario}
-          onSelect={handleDevSelect}
-          onReal={handleRealMode}
-          isRealMode={isRealMode}
-        />
-      </>
-    );
+    return <EmptyState onRetake={handleRetake} />;
   }
 
   const score = extractScore(displayRaw);
@@ -648,10 +433,6 @@ export default function DashboardPage(): React.JSX.Element {
   const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const dateStr = now.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 
-  const devLabel = devScenario !== null
-    ? DEV_SCENARIOS[devScenario].label
-    : "Live API";
-
   return (
     <>
       <main className="min-h-screen bg-[#0a0a0f] text-white pt-24 pb-20 px-4 md:px-8">
@@ -660,14 +441,6 @@ export default function DashboardPage(): React.JSX.Element {
           {/* ── Header ─────────────────────────────────────────────────────── */}
           <header className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
             <div>
-              {devScenario !== null && (
-                <div className="flex items-center gap-2 mb-3 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 w-fit">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
-                    Dev Mode — {devLabel}
-                  </span>
-                </div>
-              )}
               <span className="text-[10px] font-black uppercase tracking-[0.25em] text-white/30 block mb-2">
                 Clinical Dashboard
               </span>
@@ -678,9 +451,7 @@ export default function DashboardPage(): React.JSX.Element {
                 </span>
               </h1>
               <p className="text-sm text-white/40 mt-3">
-                {devScenario !== null
-                  ? `Previewing mock scenario — ${DEV_SCENARIOS[devScenario].label}`
-                  : `Scan completed ${dateStr} at ${timeStr}`}
+                Scan completed {dateStr} at {timeStr}
               </p>
             </div>
 
@@ -796,12 +567,7 @@ export default function DashboardPage(): React.JSX.Element {
         </div>
       </main>
 
-      <DevPanel
-        activeScenario={devScenario}
-        onSelect={handleDevSelect}
-        onReal={handleRealMode}
-        isRealMode={isRealMode}
-      />
+
     </>
   );
 }

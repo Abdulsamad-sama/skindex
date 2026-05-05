@@ -122,6 +122,10 @@ export default function AnalysisPage(): React.JSX.Element {
       }
 
       try {
+        // Persist the raw image for the weather/routine API
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+        sessionStorage.setItem("capturedImageDataUrl", dataUrl);
+
         const formData = new FormData();
         formData.append("file", blob, "face.jpg");
 
@@ -269,6 +273,18 @@ export default function AnalysisPage(): React.JSX.Element {
     try {
       // Stop camera if running
       stopCamera();
+
+      // Persist the file as a data URL for the weather/routine API
+      await new Promise<void>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (): void => {
+          if (typeof reader.result === "string") {
+            sessionStorage.setItem("capturedImageDataUrl", reader.result);
+          }
+          resolve();
+        };
+        reader.readAsDataURL(file);
+      });
 
       const formData = new FormData();
       formData.append("file", file);
