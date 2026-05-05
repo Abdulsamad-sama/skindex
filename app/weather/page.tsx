@@ -432,7 +432,7 @@ export default function WeatherPage(): React.JSX.Element {
 
               </div>
             ) : (
-              <div className="max-w-sm">
+              <div>
                 <p className="text-4xl mb-4">📍</p>
                 <h2 className="font-h2 text-h2 mb-2">Location access needed</h2>
                 <p className="text-on-surface-variant text-sm mb-6">

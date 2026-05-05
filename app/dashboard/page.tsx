@@ -555,7 +555,7 @@ export default function DashboardPage(): React.JSX.Element {
                 <div className="rounded-3xl border border-white/10 bg-white/2 p-8 flex flex-col items-center text-center gap-3">
                   <span className="text-4xl">✅</span>
                   <h3 className="font-bold text-white">Your skin looks great!</h3>
-                  <p className="text-sm text-white/40 max-w-xs">
+                  <p className="text-sm text-white/40">
                     No specific concerns detected. Keep up your current routine.
                   </p>
                 </div>
