@@ -216,18 +216,18 @@ function toNumber(v: unknown): number | null {
 }
 
 const METRIC_KEYS: Array<{ keys: string[]; label: string; higherIsBetter: boolean }> = [
-  { keys: ["hydration"], label: "Hydration", higherIsBetter: true },
+  { keys: ["hydration", "moisture"], label: "Hydration / Moisture", higherIsBetter: true },
   { keys: ["elasticity", "firmness"], label: "Elasticity", higherIsBetter: true },
   { keys: ["luminosity", "radiance", "brightness"], label: "Luminosity", higherIsBetter: true },
   { keys: ["sensitivity"], label: "Sensitivity", higherIsBetter: false },
   { keys: ["uv_damage", "uv"], label: "UV Damage", higherIsBetter: false },
   { keys: ["oiliness", "sebum"], label: "Oiliness", higherIsBetter: false },
-  { keys: ["acne", "blemishes"], label: "Acne", higherIsBetter: false },
-  { keys: ["pores"], label: "Pores", higherIsBetter: false },
-  { keys: ["texture"], label: "Texture", higherIsBetter: true },
+  { keys: ["acne", "blemishes"], label: "Acne / Blemishes", higherIsBetter: false },
+  { keys: ["pores", "pore"], label: "Pores", higherIsBetter: false },
+  { keys: ["texture", "smoothness"], label: "Texture / Smoothness", higherIsBetter: false },  // ← changed to false
   { keys: ["wrinkles", "fine_lines"], label: "Wrinkles", higherIsBetter: false },
   { keys: ["redness", "erythema"], label: "Redness", higherIsBetter: false },
-  { keys: ["dark_spots", "hyperpigmentation_score"], label: "Dark Spots", higherIsBetter: false },
+  { keys: ["dark_spots", "hyperpigmentation_score", "age_spot"], label: "Dark Spots / Age Spots", higherIsBetter: false },
 ];
 
 function extractScore(raw: RawSkinAnalysis): number | null {
@@ -241,6 +241,7 @@ function extractMetrics(raw: RawSkinAnalysis): SkinMetric[] {
     (raw.skin_metrics as Record<string, unknown> | undefined) ??
     null;
 
+  // 1. Known metrics from top-level and nested
   for (const { keys, label } of METRIC_KEYS) {
     let value: number | null = null;
     for (const k of keys) {
@@ -254,10 +255,27 @@ function extractMetrics(raw: RawSkinAnalysis): SkinMetric[] {
     if (value !== null) found.push({ label, value });
   }
 
+  // 2. Fallback: unknown fields in nested object
   if (found.length === 0 && nested) {
     for (const [k, v] of Object.entries(nested)) {
       const n = toNumber(v as number | string | undefined);
       if (n !== null) found.push({ label: k.replace(/_/g, " "), value: n });
+    }
+  }
+
+  // 3. NEW: extract from skin_concerns (your API response format)
+  const concernsObj = raw.skin_concerns as Record<string, { ui_score?: number; raw_score?: number }> | undefined;
+  if (concernsObj) {
+    for (const [key, entry] of Object.entries(concernsObj)) {
+      if (!entry || typeof entry !== "object") continue;
+      const score = entry.ui_score ?? entry.raw_score;
+      if (typeof score !== "number") continue;
+
+      const existing = METRIC_KEYS.find((mk) => mk.keys.includes(key.toLowerCase()));
+      const label = existing?.label ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      if (found.some((m) => m.label.toLowerCase() === label.toLowerCase())) continue;
+
+      found.push({ label, value: Math.round(score) });
     }
   }
 
@@ -269,8 +287,36 @@ function normaliseConcern(raw: SkinConcern | string): SkinConcern {
 }
 
 function extractConcerns(raw: RawSkinAnalysis): SkinConcern[] {
-  const source = raw.concerns ?? raw.detected_concerns ?? raw.issues ?? raw.conditions ?? raw.skin_issues ?? [];
-  return (Array.isArray(source) ? source : []).map(normaliseConcern);
+  // Standard sources
+  const standard = raw.concerns ?? raw.detected_concerns ?? raw.issues ?? raw.conditions ?? raw.skin_issues ?? [];
+  const standardConcerns = (Array.isArray(standard) ? standard : []).map(normaliseConcern);
+
+  // If we already have concerns, return them
+  if (standardConcerns.length > 0) return standardConcerns;
+
+  // Otherwise, auto-generate concerns from skin_concerns
+  const concernsObj = raw.skin_concerns as Record<string, { ui_score?: number; raw_score?: number }> | undefined;
+  if (!concernsObj) return [];
+
+  const generated: SkinConcern[] = [];
+  for (const [key, entry] of Object.entries(concernsObj)) {
+    if (!entry || typeof entry !== "object") continue;
+    const score = entry.ui_score ?? entry.raw_score;
+    if (typeof score !== "number") continue;
+
+    let severity = "low";
+    if (score >= 80) severity = "high";
+    else if (score >= 50) severity = "medium";
+
+    generated.push({
+      name: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      severity,
+      intensity: Math.round(score),
+      description: `Detected by computer‑vision with a confidence of ${Math.round(score)}%.`,
+      priority: severity === "high",
+    });
+  }
+  return generated;
 }
 
 function normaliseRec(raw: SkinRecommendation | string): SkinRecommendation {
@@ -293,7 +339,7 @@ const CONSUMED_KEYS = new Set([
   "sensitivity", "uv_damage", "oiliness", "pores", "acne", "wrinkles", "dark_spots", "redness", "texture",
   "firmness", "radiance", "brightness", "sebum", "erythema", "fine_lines", "blemishes", "uv",
   "hyperpigmentation_score", "concerns", "issues", "detected_concerns", "conditions", "skin_issues",
-  "recommendations", "routine", "products", "ingredients", "suggested_ingredients",
+  "recommendations", "routine", "products", "ingredients", "suggested_ingredients","skin_concerns",
 ]);
 
 function extractExtras(raw: RawSkinAnalysis): ExtraField[] {
@@ -596,7 +642,7 @@ export default function DashboardPage(): React.JSX.Element {
   const extras = extractExtras(displayRaw);
 
   const skinType = displayRaw.skin_type ?? displayRaw.skin_tone ?? null;
-  const ageEst = displayRaw.age_estimate ?? displayRaw.estimated_age ?? null;
+  const ageEst = displayRaw.age_estimate ?? displayRaw.estimated_age ?? displayRaw.skin_age ?? null;
 
   const now = new Date();
   const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
