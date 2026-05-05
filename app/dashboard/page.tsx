@@ -356,7 +356,7 @@ function ExtrasTable({ extras }: ExtrasProps): React.JSX.Element | null {
       <div className="rounded-2xl border border-white/10 overflow-hidden divide-y divide-white/5">
         {extras.map(({ key, value }) => (
           <div key={key} className="flex gap-4 px-4 py-2.5 hover:bg-white/5 transition-colors">
-            <span className="text-xs font-bold text-white/40 uppercase tracking-wide min-w-[140px] shrink-0">
+            <span className="text-xs font-bold text-white/40 uppercase tracking-wide min-w-35 shrink-0">
               {key.replace(/_/g, " ")}
             </span>
             <span className="text-xs text-white/70 font-mono break-all">{value}</span>
