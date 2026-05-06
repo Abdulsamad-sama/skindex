@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, LocateFixedIcon, LocateIcon, Plus, Smile, Sun } from "lucide-react";
+import { LocateFixedIcon, LocateIcon, Plus, Smile, Sun } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { MdCheckroom, MdOpacity } from "react-icons/md";
 
@@ -344,31 +344,18 @@ export default function WeatherPage(): React.JSX.Element {
       };
       setPageState({ status: "ok", data: normalise(normaliseInput), lat, lon });
 
-      // 2. Personalized routine (non-blocking — runs after weather is shown)
-      const dataUrl = sessionStorage.getItem("capturedImageDataUrl");
-      if (!dataUrl) return;
-
-      setRoutineLoading(true);
-      try {
-        const blobRes = await fetch(dataUrl);
-        const blob = await blobRes.blob();
-        const imageFile = new File([blob], "face.jpg", { type: "image/jpeg" });
-
-        const formData = new FormData();
-        formData.append("file", imageFile);
-
-        const routineRes = await fetch(
-          `https://skin-analysis-production.up.railway.app/api/routine/daily?lat=${lat}&lon=${lon}`,
-          { method: "POST", body: formData }
-        );
-        if (!routineRes.ok) throw new Error(`Routine API error ${routineRes.status}`);
-        const routineRaw = (await routineRes.json()) as RoutineData;
-        setRoutine(routineRaw);
-      } catch (routineErr: unknown) {
-        console.warn("Routine fetch failed:", routineErr);
-        // Don't block the page — weather data is already shown
-      } finally {
-        setRoutineLoading(false);
+      // 2. Load personalized routine from sessionStorage (fetched in analysis page)
+      const routineDataStr = sessionStorage.getItem("skinRoutineData");
+      if (routineDataStr) {
+        setRoutineLoading(true);
+        try {
+          const routineRaw = JSON.parse(routineDataStr) as RoutineData;
+          setRoutine(routineRaw);
+        } catch (routineErr: unknown) {
+          console.warn("Routine data parse failed:", routineErr);
+        } finally {
+          setRoutineLoading(false);
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -563,10 +550,20 @@ export default function WeatherPage(): React.JSX.Element {
             {/* Clothing + Humidity alert */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
               {/* Clothing */}
-              <div className="bg-surface-container-lowest border border-slate-200 dark:border-slate-800 rounded-xl p-md shadow-sm flex items-start gap-md">
-                <div className="p-3 bg-secondary-fixed rounded-lg shrink-0">
-                  <span className="material-symbols-outlined text-on-secondary-fixed" data-icon="checkroom"><MdCheckroom /></span>
+              <div className="bg-surface-container-lowest border border-slate-200 dark:border-slate-800 rounded-xl p-md shadow-sm flex flex-col items-start gap-md">
+                <div className="flex items-start gap-md">
+                  <div className="p-3 bg-secondary-fixed rounded-lg shrink-0">
+                    <span className="material-symbols-outlined text-on-secondary-fixed text" data-icon="checkroom"><MdCheckroom /></span>
+                  </div>
+                    <p className="font-h3 text-h3 mb-2">Outfit Guide:</p>
+                    <p className="font-body-md text-body-md text-on-surface-variant">{d.clothingTip}</p>
                 </div>
+                {!routineLoading && !routine?.outfit_suggestions && (
+                  <p className="text-sm text-on-surface-variant italic py-4">
+                    Complete a skin scan on the Analysis page to see your outfit suggestions.
+                  </p>
+                )}
+              
                 {routine && routine.outfit_suggestions.length > 0 && (
                   <div className="glass p-md rounded-xl border border-slate-200 dark:border-slate-800">
                     <span className="font-label-caps text-label-caps text-on-surface-variant block mb-base">APPAREL STRATEGY</span>
@@ -588,11 +585,7 @@ export default function WeatherPage(): React.JSX.Element {
                     </div>
                   </div>
                 )}
-                {/* <div>
-                  <span className="font-label-caps text-label-caps text-secondary mb-1 block">CLOTHING RECOMMENDATION</span>
-                  <p className="font-h3 text-h3 mb-2">Outfit Guide</p>
-                  <p className="font-body-md text-body-md text-on-surface-variant">{d.clothingTip}</p>
-                </div> */}
+                
               </div>
 
               {/* Humidity alert */}
@@ -617,19 +610,6 @@ export default function WeatherPage(): React.JSX.Element {
 
           {/* ── RIGHT COLUMN ─────────────────────────────────────────────── */}
           <aside className="lg:col-span-4 flex flex-col gap-gutter">
-
-            {/* Precision Score Banner */}
-            {routine && (
-              <div className="p-md rounded-xl bg-primary text-white flex justify-between items-center shadow-lg shadow-primary/20">
-                <div>
-                  <p className="text-xs font-bold uppercase opacity-80">Precision Score</p>
-                  <p className="font-h2 text-h2 font-black">{routine.overall_score}% Match</p>
-                </div>
-                <div className="h-12 w-12 rounded-full border-4 border-white/30 flex items-center justify-center font-black text-xl">
-                  ✓
-                </div>
-              </div>
-            )}
 
             {/* Skincare Products */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-lg relative">
@@ -677,29 +657,7 @@ export default function WeatherPage(): React.JSX.Element {
               </div>
             </div>
 
-            {/* Outfit Suggestions */}
-            {routine && routine.outfit_suggestions.length > 0 && (
-              <div className="glass p-md rounded-xl border border-slate-200 dark:border-slate-800">
-                <span className="font-label-caps text-label-caps text-on-surface-variant block mb-base">APPAREL STRATEGY</span>
-                <div className="space-y-base">
-                  {routine.outfit_suggestions.map((item: RoutineItem, i: number) => (
-                    <div key={i} className="p-base rounded-lg bg-surface-container">
-                      <p className="font-bold text-sm text-on-surface mb-1">{item.name}</p>
-                      <p className="text-xs text-on-surface-variant mb-2">{item.reason}</p>
-                      <a
-                        href={item.amazon_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-[10px] font-black text-primary uppercase tracking-wider hover:underline"
-                      >
-                        <LocateIcon size={10} /> Buy on Amazon
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
+           
             {/* Coords indicator */}
             {coordsRef.current && (
               <p className="font-body-md text-xs text-on-surface-variant">

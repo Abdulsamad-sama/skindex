@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 // ─── API Response Types ───────────────────────────────────────────────────────
 
+
 type RoutineStep = {
   time?: string;
   hour?: string;
@@ -34,6 +35,14 @@ type SkinRecommendation = {
   reason?: string;
   category?: string;
   type?: string;
+};
+
+type RoutineItem = { name: string; amazon_url: string; reason: string };
+
+type RoutineData = {
+  overall_score: number;
+  skincare_routine: RoutineItem[];
+  outfit_suggestions: RoutineItem[];
 };
 
 type RawSkinAnalysis = {
@@ -398,6 +407,7 @@ function EmptyState({ onRetake }: EmptyStateProps): React.JSX.Element {
 export default function DashboardPage(): React.JSX.Element {
   const router = useRouter();
   const [raw, setRaw] = useState<RawSkinAnalysis | null>(null);
+  const [routine, setRoutine] = useState<RoutineData | null>(null);
   const [showRaw, setShowRaw] = useState<boolean>(false);
 
   useEffect((): void => {
@@ -405,10 +415,15 @@ export default function DashboardPage(): React.JSX.Element {
     if (stored) {
       try { setRaw(JSON.parse(stored) as RawSkinAnalysis); } catch { /* ignore */ }
     }
+    const routineStored = sessionStorage.getItem("skinRoutineData");
+    if (routineStored) {
+      try { setRoutine(JSON.parse(routineStored) as RoutineData); } catch { /* ignore */ }
+    }
   }, []);
 
   const handleRetake = (): void => {
     sessionStorage.removeItem("skinAnalysisResult");
+    sessionStorage.removeItem("skinRoutineData");
     router.push("/analysis");
   };
 
@@ -420,7 +435,7 @@ export default function DashboardPage(): React.JSX.Element {
     return <EmptyState onRetake={handleRetake} />;
   }
 
-  const score = extractScore(displayRaw);
+  const score = routine?.overall_score ?? null;
   const metrics = extractMetrics(displayRaw);
   const concerns = extractConcerns(displayRaw);
   const recommendations = extractRecommendations(displayRaw);

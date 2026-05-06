@@ -5,11 +5,20 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+
 import { Upload, Image as ImageIcon, Loader2, Check } from "lucide-react";
 
-// ─── API Response Type ───────────────────────────────────────────────────────
+// ─── API Response Types ──────────────────────────────────────────────────────
 
 export type SkinAnalysisResult = Record<string, unknown>;
+
+type RoutineItem = { name: string; amazon_url: string; reason: string };
+
+type RoutineData = {
+  overall_score: number;
+  skincare_routine: RoutineItem[];
+  outfit_suggestions: RoutineItem[];
+};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -121,7 +130,63 @@ export default function AnalysisPage(): React.JSX.Element {
         }
 
         sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
-        router.push("/dashboard");
+
+        // Fetch routine data with geolocation
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            async (pos: GeolocationPosition): Promise<void> => {
+              const lat = pos.coords.latitude;
+              const lon = pos.coords.longitude;
+              try {
+                const blobRes = await fetch("data:image/jpeg;base64,/9j/4AAQSkZJRg==", { signal: AbortSignal.timeout(5000) }).catch(() => null);
+                const dataUrl = sessionStorage.getItem("capturedImageDataUrl");
+                if (!dataUrl) {
+                  router.push("/dashboard");
+                  return;
+                }
+
+                const blobFromUrl = await fetch(dataUrl);
+                const blob = await blobFromUrl.blob();
+                const imageFile = new File([blob], "face.jpg", { type: "image/jpeg" });
+
+                const routineFormData = new FormData();
+                routineFormData.append("file", imageFile);
+
+                const routineController = new AbortController();
+                const routineTimeoutId = setTimeout(() => routineController.abort(), 30000);
+
+                try {
+                  const routineRes = await fetch(
+                    `https://skin-analysis-production.up.railway.app/api/routine/daily?lat=${lat}&lon=${lon}`,
+                    { method: "POST", body: routineFormData, signal: routineController.signal }
+                  );
+
+                  clearTimeout(routineTimeoutId);
+
+                  if (routineRes.ok) {
+                    const routineData = (await routineRes.json()) as RoutineData;
+                    sessionStorage.setItem("skinRoutineData", JSON.stringify(routineData));
+                  }
+                } catch (routineErr: unknown) {
+                  clearTimeout(routineTimeoutId);
+                  console.warn("Routine fetch failed:", routineErr);
+                } finally {
+                  router.push("/dashboard");
+                }
+              } catch (routineErr: unknown) {
+                console.warn("Routine processing failed:", routineErr);
+                router.push("/dashboard");
+              }
+            },
+            (): void => {
+              // Geolocation error - redirect anyway
+              router.push("/dashboard");
+            },
+            { timeout: 8000 }
+          );
+        } else {
+          router.push("/dashboard");
+        }
       } catch (fetchErr: unknown) {
         clearTimeout(timeoutId);
         if (fetchErr instanceof TypeError && fetchErr.message === "Failed to fetch") {
@@ -187,14 +252,13 @@ export default function AnalysisPage(): React.JSX.Element {
                 <img
                   src={previewUrl}
                   alt="Preview"
-                  className="absolute inset-0 w-full h-full object-cover opacity-40"
+                  className="absolute inset-0 w-full h-full object-contain opacity-40"
                 />
                 <div className="relative z-10 flex flex-col items-center text-center p-lg">
                   {loading ? (
                     <>
                       <Loader2 className="w-12 h-12 text-primary animate-spin mb-md" />
                       <p className="font-h3 text-on-background">Analyzing your skin...</p>
-                      <p className="text-sm text-on-surface-variant">Our AI is processing your clinical insights.</p>
                     </>
                   ) : (
                     <>
@@ -223,7 +287,7 @@ export default function AnalysisPage(): React.JSX.Element {
             {/* Error Overlay */}
             {error && (
               <div className="absolute inset-0 bg-black/80 flex items-center justify-center p-lg text-center z-20">
-                <div className="max-w-xs">
+                <div>
                   <p className="text-red-400 font-bold mb-md">
                     {analysisFailed ? "❌ Analysis Failed" : "⚠️ Upload Issue"}
                   </p>
@@ -234,7 +298,7 @@ export default function AnalysisPage(): React.JSX.Element {
                       handleReset();
                     }}
                     variant="outline"
-                    className="border-white/20 text-white hover:bg-white/10"
+                    className="border-white/20 hover:bg-white/10"
                   >
                     Try Again
                   </Button>
