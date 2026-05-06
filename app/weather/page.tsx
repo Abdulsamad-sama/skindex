@@ -567,11 +567,32 @@ export default function WeatherPage(): React.JSX.Element {
                 <div className="p-3 bg-secondary-fixed rounded-lg shrink-0">
                   <span className="material-symbols-outlined text-on-secondary-fixed" data-icon="checkroom"><MdCheckroom /></span>
                 </div>
-                <div>
+                {routine && routine.outfit_suggestions.length > 0 && (
+                  <div className="glass p-md rounded-xl border border-slate-200 dark:border-slate-800">
+                    <span className="font-label-caps text-label-caps text-on-surface-variant block mb-base">APPAREL STRATEGY</span>
+                    <div className="space-y-base">
+                      {routine.outfit_suggestions.map((item: RoutineItem, i: number) => (
+                        <div key={i} className="p-base rounded-lg bg-surface-container">
+                          <p className="font-bold text-sm text-on-surface mb-1">{item.name}</p>
+                          <p className="text-xs text-on-surface-variant mb-2">{item.reason}</p>
+                          <a
+                            href={item.amazon_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-[10px] font-black text-primary uppercase tracking-wider hover:underline"
+                          >
+                            <LocateIcon size={10} /> Buy on Amazon
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* <div>
                   <span className="font-label-caps text-label-caps text-secondary mb-1 block">CLOTHING RECOMMENDATION</span>
                   <p className="font-h3 text-h3 mb-2">Outfit Guide</p>
                   <p className="font-body-md text-body-md text-on-surface-variant">{d.clothingTip}</p>
-                </div>
+                </div> */}
               </div>
 
               {/* Humidity alert */}
