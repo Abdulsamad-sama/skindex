@@ -28,6 +28,7 @@ type FaceDetectionInstance = {
   }) => void;
   onResults: (callback: (results: FaceDetectionResult) => void) => void;
   send: (options: { image: HTMLVideoElement }) => Promise<void>;
+  close: () => Promise<void>;
 };
 
 type CameraInstance = {
@@ -57,6 +58,8 @@ export default function AnalysisPage(): React.JSX.Element {
   const cameraRef = useRef<CameraInstance | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const faceDetectionRef = useRef<FaceDetectionInstance | null>(null);
+  const faceDetectionModuleRef = useRef<any>(null);
+  const cameraModuleRef = useRef<any>(null);
   const hasCapturedRef = useRef(false);
 
   const stableCounter = useRef(0);
@@ -64,17 +67,70 @@ export default function AnalysisPage(): React.JSX.Element {
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [ready, setReady] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string>("");
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
-
   const [analysisFailed, setAnalysisFailed] = useState<boolean>(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  const initInProgressRef = useRef<boolean>(false);
+
+  // ── Success Handler ────────────────────────────────────────────────────────
+
+  const handleAnalysisSuccess = useCallback(async (data: SkinAnalysisResult, imageDataUrl: string): Promise<void> => {
+    sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
+    sessionStorage.setItem("capturedImageDataUrl", imageDataUrl);
+
+    // Optional: Pre-fetch routine data if geolocation is available
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const { latitude: lat, longitude: lon } = pos.coords;
+            const blobRes = await fetch(imageDataUrl);
+            const blob = await blobRes.blob();
+            const file = new File([blob], "face.jpg", { type: "image/jpeg" });
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const res = await fetch(
+              `https://skin-analysis-production.up.railway.app/api/routine/daily?lat=${lat}&lon=${lon}`,
+              { method: "POST", body: formData }
+            );
+
+            if (res.ok) {
+              const routineData = await res.json();
+              sessionStorage.setItem("skinRoutineData", JSON.stringify(routineData));
+            }
+          } catch (err) {
+            console.warn("Routine pre-fetch failed:", err);
+          } finally {
+            router.push("/dashboard");
+          }
+        },
+        () => router.push("/dashboard"),
+        { timeout: 5000 }
+      );
+    } else {
+      router.push("/dashboard");
+    }
+  }, [router]);
 
   //  ----------------STOP CAMERA------------------------------------
   const stopCamera = useCallback(() => {
     cameraRef.current?.stop();
     cameraRef.current = null;
+
+    if (faceDetectionRef.current) {
+      try {
+        faceDetectionRef.current.close();
+      } catch (e) {
+        console.warn("Error closing face detection:", e);
+      }
+      faceDetectionRef.current = null;
+    }
+
     streamRef.current
       ?.getTracks()
       .forEach((track: MediaStreamTrack) => track.stop());
@@ -88,83 +144,99 @@ export default function AnalysisPage(): React.JSX.Element {
     if (!videoRef.current || loading) return;
 
     setLoading(true);
-
-    setError(null);
+    setCameraError(null);
+    setAnalysisFailed(false);
 
     const video = videoRef.current;
     const canvas = document.createElement("canvas");
-
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       setLoading(false);
-      setError("Failed to get canvas context");
+      setCameraError("Failed to get canvas context");
       return;
     }
     ctx.drawImage(video, 0, 0);
 
-    canvas.toBlob(
-      async (blob) => {
-        if (!blob) return;
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
 
-        try {
-          const formData = new FormData();
-          formData.append("file", blob, "face.jpg");
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        setLoading(false);
+        setCameraError("Failed to process image");
+        return;
+      }
 
-          const res = await fetch(
-            "https://skin-analysis-production.up.railway.app/api/skin/analyze",
-            {
-              method: "POST",
-              body: formData,
-            },
-          );
+      try {
+        const formData = new FormData();
+        formData.append("file", blob, "face.jpg");
 
-          const data = (await res.json()) as Record<string, unknown>;
+        const res = await fetch(
+          "https://skin-analysis-production.up.railway.app/api/skin/analyze",
+          { method: "POST", body: formData }
+        );
 
-          if (!res.ok)
-            throw new Error((data?.message as string) || "Upload failed");
+        const data = (await res.json()) as SkinAnalysisResult;
+        if (!res.ok) throw new Error((data?.message as string) || "Analysis failed");
 
-          setResult(JSON.stringify(data));
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : String(err));
-        } finally {
-          setLoading(false);
-        }
-      },
-      "image/jpeg",
-      0.95,
-    );
-    stopCamera();
-  }, [loading, stopCamera]);
+        stopCamera();
+        await handleAnalysisSuccess(data, dataUrl);
+      } catch (err: unknown) {
+        setCameraError(err instanceof Error ? err.message : String(err));
+        setAnalysisFailed(true);
+        setIsLocked(false);
+        hasCapturedRef.current = false; // Allow manual retry to trigger again
+      } finally {
+        setLoading(false);
+      }
+    }, "image/jpeg", 0.95);
+  }, [loading, stopCamera, handleAnalysisSuccess]);
 
   const init = useCallback(async () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || initInProgressRef.current) return;
+    initInProgressRef.current = true;
 
     try {
-      const { FaceDetection } = await import("@mediapipe/face_detection");
-      const { Camera } = await import("@mediapipe/camera_utils");
+      // 1. Full Stop & Cleanup previous instance if any
+      stopCamera();
+      
+      // 2. Clear refs to be sure
+      faceDetectionRef.current = null;
+      cameraRef.current = null;
+
+      // 3. Lazy load modules once
+      if (!faceDetectionModuleRef.current) {
+        faceDetectionModuleRef.current = await import("@mediapipe/face_detection");
+      }
+      if (!cameraModuleRef.current) {
+        cameraModuleRef.current = await import("@mediapipe/camera_utils");
+      }
+
+      const FaceDetection = faceDetectionModuleRef.current.FaceDetection;
+      const Camera = cameraModuleRef.current.Camera;
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user" },
       });
 
+      if (!videoRef.current) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
+
       videoRef.current.srcObject = stream;
       streamRef.current = stream;
 
       const faceDetection = new FaceDetection({
-        locateFile: (file: string) =>
-          `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
+        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
       }) as FaceDetectionInstance;
 
-      faceDetection.setOptions({
-        model: "short",
-        minDetectionConfidence: 0.6,
-      });
+      faceDetection.setOptions({ model: "short", minDetectionConfidence: 0.6 });
 
       faceDetection.onResults((results: FaceDetectionResult) => {
-        if (!overlayCanvasRef.current || !videoRef.current) return;
+        if (!overlayCanvasRef.current || !videoRef.current || !faceDetectionRef.current) return;
 
         const canvas = overlayCanvasRef.current;
         const ctx = canvas.getContext("2d");
@@ -172,11 +244,9 @@ export default function AnalysisPage(): React.JSX.Element {
 
         canvas.width = videoRef.current.videoWidth;
         canvas.height = videoRef.current.videoHeight;
-
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         const detection = results.detections?.[0];
-
         if (!detection) {
           stableCounter.current = 0;
           setIsLocked(false);
@@ -184,54 +254,37 @@ export default function AnalysisPage(): React.JSX.Element {
         }
 
         const box = detection.boundingBox;
-
         const faceWidth = box.width;
-        const faceCenterX = box.xCenter;
-        const faceCenterY = box.yCenter;
-
-        // Size: ~60–80% of frame (approx)
-        const sizeValid = faceWidth > 0.4 && faceWidth < 0.8;
-
-        // Centered
-        const centered =
-          Math.abs(faceCenterX - 0.5) < 0.15 &&
-          Math.abs(faceCenterY - 0.5) < 0.2;
-
-        const valid = sizeValid && centered;
+        const valid = faceWidth > 0.4 && faceWidth < 0.8 &&
+          Math.abs(box.xCenter - 0.5) < 0.15 &&
+          Math.abs(box.yCenter - 0.5) < 0.2;
 
         if (valid) {
           stableCounter.current += 1;
-
-          if (
-            stableCounter.current > 15 &&
-            !loading &&
-            !hasCapturedRef.current
-          ) {
-            hasCapturedRef.current = true; // 🔥 lock forever (until reset)
+          if (stableCounter.current > 15 && !loading && !hasCapturedRef.current) {
+            hasCapturedRef.current = true;
             setIsLocked(true);
-            capturePhoto();
+            void capturePhoto();
           }
         } else {
           stableCounter.current = 0;
           setIsLocked(false);
         }
 
-        // ---------------Draw bounding box----------------------
-        ctx.strokeStyle = valid ? "lime" : "red";
+        ctx.strokeStyle = valid ? "#4ade80" : "#f87171";
         ctx.lineWidth = 3;
-
         ctx.strokeRect(
           box.xCenter * canvas.width - (faceWidth * canvas.width) / 2,
           box.yCenter * canvas.height - (box.height * canvas.height) / 2,
           faceWidth * canvas.width,
-          box.height * canvas.height,
+          box.height * canvas.height
         );
       });
 
       const camera = new Camera(videoRef.current, {
         onFrame: async () => {
-          if (videoRef.current) {
-            await faceDetection.send({ image: videoRef.current });
+          if (videoRef.current && faceDetectionRef.current) {
+            await faceDetectionRef.current.send({ image: videoRef.current });
           }
         },
         width: 640,
@@ -239,16 +292,17 @@ export default function AnalysisPage(): React.JSX.Element {
       }) as CameraInstance;
 
       camera.start();
-
       cameraRef.current = camera;
       faceDetectionRef.current = faceDetection;
-
       setReady(true);
+      setCameraError(null);
     } catch (err) {
       console.error(err);
-      setError("Failed to initialize camera");
+      setCameraError("Failed to initialize camera. Please check permissions.");
+    } finally {
+      initInProgressRef.current = false;
     }
-  }, [loading, capturePhoto]);
+  }, [loading, capturePhoto, stopCamera]);
 
   // --------------- RESTART----------------------------
   const restartCamera = useCallback(async () => {
@@ -280,7 +334,7 @@ export default function AnalysisPage(): React.JSX.Element {
     if (file && file.type.startsWith("image/")) {
       void handleUpload(file);
     } else if (file) {
-      setError("Please upload an image file (PNG or JPEG)");
+      setUploadError("Please upload an image file (PNG or JPEG)");
     }
   }, []);
 
@@ -316,193 +370,64 @@ export default function AnalysisPage(): React.JSX.Element {
     hasCapturedRef.current = false;
     stableCounter.current = 0;
     setIsLocked(false);
-    setResult("");
-    init(); // restart camera
+    setCameraError(null);
+    setAnalysisFailed(false);
+    
+    // Only re-init if camera is actually dead/stopped
+    if (!cameraRef.current || !streamRef.current) {
+      void init();
+    }
   }, [init]);
 
   // ── Upload fallback ────────────────────────────────────────────────────────
 
-  const handleUpload = useCallback(
-    async (file: File): Promise<void> => {
-      setLoading(true);
-      setError(null);
-      setAnalysisFailed(false);
+  const handleUpload = useCallback(async (file: File): Promise<void> => {
+    stopCamera(); // Prevent dual-method analysis
+    setLoading(true);
+    setUploadError(null);
+    setAnalysisFailed(false);
 
-      // Create preview
-      const objectUrl = URL.createObjectURL(file);
-      setPreviewUrl(objectUrl);
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewUrl(objectUrl);
 
-      try {
-        // Validate file size (cap at 5MB)
-        if (file.size > 5 * 1024 * 1024) {
-          throw new Error("File size must be less than 5MB");
-        }
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error("File size must be less than 5MB");
 
-        // Persist the file as a data URL for the weather/routine API
-        await new Promise<void>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (): void => {
-            if (typeof reader.result === "string") {
-              sessionStorage.setItem("capturedImageDataUrl", reader.result);
-            }
-            resolve();
-          };
-          reader.readAsDataURL(file);
-        });
+      // Persist for shared success handler
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
 
-        const formData = new FormData();
-        formData.append("file", file);
+      const formData = new FormData();
+      formData.append("file", file);
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+      const res = await fetch(
+        "https://skin-analysis-production.up.railway.app/api/skin/analyze",
+        { method: "POST", body: formData }
+      );
 
-        try {
-          console.log("Uploading to API...", {
-            fileName: file.name,
-            fileSize: file.size,
-            fileType: file.type,
-          });
-          const res = await fetch(
-            "https://skin-analysis-production.up.railway.app/api/skin/analyze",
-            { method: "POST", body: formData, signal: controller.signal },
-          );
+      const data = (await res.json()) as SkinAnalysisResult;
+      if (!res.ok) throw new Error((data?.message as string) || "Analysis failed");
 
-          clearTimeout(timeoutId);
-
-          console.log(`API response: ${res.status} ${res.statusText}`);
-
-          let data: SkinAnalysisResult = {};
-          const responseText = await res.text();
-
-          try {
-            data = JSON.parse(responseText) as SkinAnalysisResult;
-          } catch {
-            // Response wasn't valid JSON — store raw response for debugging
-            data = {
-              error: `Invalid response: ${responseText.substring(0, 200)}`,
-            };
-          }
-
-          console.log("API response data:", data);
-
-          if (!res.ok) {
-            const apiError =
-              (data?.message as string | undefined) ??
-              (data?.error as string | undefined);
-            const statusMsg =
-              res.status === 500
-                ? "Server error — the API backend may be down or having issues"
-                : `HTTP ${res.status}`;
-            throw new Error(apiError || statusMsg);
-          }
-
-          sessionStorage.setItem("skinAnalysisResult", JSON.stringify(data));
-
-          // Fetch routine data with geolocation
-          if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-              async (pos: GeolocationPosition): Promise<void> => {
-                const lat = pos.coords.latitude;
-                const lon = pos.coords.longitude;
-                try {
-                  const blobRes = await fetch(
-                    "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
-                    { signal: AbortSignal.timeout(5000) },
-                  ).catch(() => null);
-                  const dataUrl = sessionStorage.getItem(
-                    "capturedImageDataUrl",
-                  );
-                  if (!dataUrl) {
-                    router.push("/dashboard");
-                    return;
-                  }
-
-                  const blobFromUrl = await fetch(dataUrl);
-                  const blob = await blobFromUrl.blob();
-                  const imageFile = new File([blob], "face.jpg", {
-                    type: "image/jpeg",
-                  });
-
-                  const routineFormData = new FormData();
-                  routineFormData.append("file", imageFile);
-
-                  const routineController = new AbortController();
-                  const routineTimeoutId = setTimeout(
-                    () => routineController.abort(),
-                    30000,
-                  );
-
-                  try {
-                    const routineRes = await fetch(
-                      `https://skin-analysis-production.up.railway.app/api/routine/daily?lat=${lat}&lon=${lon}`,
-                      {
-                        method: "POST",
-                        body: routineFormData,
-                        signal: routineController.signal,
-                      },
-                    );
-
-                    clearTimeout(routineTimeoutId);
-
-                    if (routineRes.ok) {
-                      const routineData =
-                        (await routineRes.json()) as RoutineData;
-                      sessionStorage.setItem(
-                        "skinRoutineData",
-                        JSON.stringify(routineData),
-                      );
-                    }
-                  } catch (routineErr: unknown) {
-                    clearTimeout(routineTimeoutId);
-                    console.warn("Routine fetch failed:", routineErr);
-                  } finally {
-                    router.push("/dashboard");
-                  }
-                } catch (routineErr: unknown) {
-                  console.warn("Routine processing failed:", routineErr);
-                  router.push("/dashboard");
-                }
-              },
-              (): void => {
-                // Geolocation error - redirect anyway
-                router.push("/dashboard");
-              },
-              { timeout: 8000 },
-            );
-          } else {
-            router.push("/dashboard");
-          }
-        } catch (fetchErr: unknown) {
-          clearTimeout(timeoutId);
-          if (
-            fetchErr instanceof TypeError &&
-            fetchErr.message === "Failed to fetch"
-          ) {
-            throw new Error(
-              "Network error — check your internet connection or try again",
-            );
-          }
-          throw fetchErr;
-        }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error("Upload error:", message, err);
-        setError(message);
-        setAnalysisFailed(true);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [router],
-  );
+      await handleAnalysisSuccess(data, dataUrl);
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+      setAnalysisFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [stopCamera, handleAnalysisSuccess]);
 
   const handleReset = useCallback((): void => {
-    setError(null);
+    setUploadError(null);
     setAnalysisFailed(false);
     setLoading(false);
     setPreviewUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }, []);
+    void init(); // Restart camera on reset
+  }, [init]);
 
   useEffect(() => {
     return () => {
@@ -529,10 +454,9 @@ export default function AnalysisPage(): React.JSX.Element {
       </div>
 
       <div className="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-12 gap-lg items-center">
-        {/* LEFT SIDE */}
+        {/* LEFT SIDE: Camera */}
         <div className="lg:col-span-7 flex flex-col items-center">
-          <div className="relative w-full aspect-3/2 lg:aspect-2/1 bg-black rounded-[2rem] overflow-hidden">
-            {/* VIDEO */}
+          <div className="relative w-full aspect-4/3 bg-black rounded-[2rem] overflow-hidden shadow-2xl group">
             <video
               ref={videoRef}
               autoPlay
@@ -540,36 +464,76 @@ export default function AnalysisPage(): React.JSX.Element {
               muted
               className="absolute inset-0 w-full h-full object-cover"
             />
+            <canvas ref={overlayCanvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
 
-            {/* DETECTION OVERLAY */}
-            <canvas
-              ref={overlayCanvasRef}
-              className="absolute inset-0 w-full h-full"
-            />
+            {/* Scanning Line Animation */}
+            {(loading || isLocked) && <div className="scanning-line absolute w-full z-10" style={{ animation: "scan 3s linear infinite" }} />}
 
-            {/* OVAL GUIDE */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div
-                className={`guide-oval h-52 w-42 lg:h-74 lg:w-54 ${
-                  isLocked ? "border-green-400" : ""
-                }`}
-              />
+            {/* Guide Overlay */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className={`w-64 h-80 border-2 border-dashed rounded-full transition-all duration-700 ${isLocked ? "border-emerald-400 scale-105 bg-emerald-400/5 shadow-[0_0_30px_rgba(74,222,128,0.2)]" : "border-white/20"
+                }`} />
             </div>
-            <div></div>
 
-            {!ready && (
-              <div className="absolute inset-0 flex items-center justify-center text-white">
-                Initializing camera...
+            {/* Floating Status Badge */}
+            <div className="absolute top-6 left-6 z-20 flex items-center gap-3">
+              <div className={`px-4 py-2 rounded-full backdrop-blur-md border flex items-center gap-2 transition-all duration-500 ${loading ? "bg-amber-500/20 border-amber-500/30 text-amber-300" :
+                isLocked ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-300" :
+                  "bg-black/40 border-white/10 text-white/70"
+                }`}>
+                {loading ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Analyzing</span>
+                  </>
+                ) : isLocked ? (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Capturing</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-white/40" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Auto Capture Ready</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Floating Reset Button */}
+            <button
+              onClick={resetCamera}
+              className="absolute top-6 right-6 z-20 p-3 rounded-full bg-black/40 border border-white/10 text-white/50 hover:text-white hover:bg-black/60 transition-all opacity-0 group-hover:opacity-100"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+            </button>
+
+            {/* Status Overlay */}
+            {!ready && !cameraError && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 text-white gap-md">
+                <Loader2 className="w-10 h-10 animate-spin text-primary" />
+                <p className="font-medium animate-pulse tracking-widest text-[10px] uppercase">Initializing AI Scan...</p>
+              </div>
+            )}
+
+            {cameraError && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-center p-lg z-30">
+                <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mb-md border border-rose-500/20">
+                  <span className="text-2xl text-rose-500 font-black">⚠️</span>
+                </div>
+                <p className="text-on-surface font-black uppercase tracking-widest text-xs mb-1">Scan Error</p>
+                <p className="text-sm text-white/80 mb-lg max-w-xs leading-relaxed">{cameraError}</p>
+                <Button onClick={resetCamera} variant="secondary" className="rounded-full px-8 font-bold uppercase tracking-widest text-[10px]">
+                  Retry Scan
+                </Button>
               </div>
             )}
           </div>
-          {/* CONTROLS */}
-          <div className="mt-lg flex flex-col gap-md">
-            <Button disabled className="w-full py-lg  text-white">
-              {loading ? "Analyzing..." : "Auto Capturing..."}
-            </Button>
 
-            {<Button onClick={resetCamera}>Retake</Button>}
+          <div className="mt-md text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/40">
+              Face detection active • Please keep still
+            </p>
           </div>
         </div>
 
@@ -580,11 +544,10 @@ export default function AnalysisPage(): React.JSX.Element {
             onDragLeave={onDragLeave}
             onDrop={onDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`relative w-full aspect-3/4 md:aspect-4/2 rounded-[2rem] border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center gap-md overflow-hidden ${
-              isDragging
-                ? "border-primary bg-primary/5 scale-[1.02]"
-                : "border-slate-200 dark:border-slate-800 bg-surface-container hover:border-primary/50"
-            }`}
+            className={`relative w-full aspect-3/4 md:aspect-4/2 rounded-[2rem] border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center gap-md overflow-hidden ${isDragging
+              ? "border-primary bg-primary/5 scale-[1.02]"
+              : "border-slate-200 dark:border-slate-800 bg-surface-container hover:border-primary/50"
+              }`}
           >
             {previewUrl ? (
               <>
@@ -630,14 +593,14 @@ export default function AnalysisPage(): React.JSX.Element {
             )}
 
             {/* Error Overlay */}
-            {error && (
+            {uploadError && (
               <div className="absolute inset-0 bg-black/80 flex items-center justify-center p-lg text-center z-20">
                 <div>
-                  <p className="text-red-400 font-bold mb-md">
+                  <p className="text-red-400 font-bold mb-md text-xs uppercase tracking-widest">
                     {analysisFailed ? "❌ Analysis Failed" : "⚠️ Upload Issue"}
                   </p>
-                  <p className="text-sm text-white/90 mb-lg leading-relaxed">
-                    {error}
+                  <p className="text-sm text-white/90 mb-lg leading-relaxed max-w-xs">
+                    {uploadError}
                   </p>
                   <Button
                     onClick={(e) => {
@@ -645,7 +608,7 @@ export default function AnalysisPage(): React.JSX.Element {
                       handleReset();
                     }}
                     variant="outline"
-                    className="border-white/20 hover:bg-white/10"
+                    className="border-white/20 hover:bg-white/10 rounded-full px-8"
                   >
                     Try Again
                   </Button>

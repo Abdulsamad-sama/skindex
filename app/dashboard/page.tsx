@@ -249,19 +249,19 @@ function ScoreRing({ score }: ScoreRingProps): React.JSX.Element {
   const r = 54;
   const circ = 2 * Math.PI * r;
   const offset = circ * (1 - score / 100);
-  const colour = score >= 75 ? "#4ade80" : score >= 50 ? "#facc15" : "#f87171";
+  const colour = score >= 75 ? "#006a64" : score >= 50 ? "#facc15" : "#f87171";
 
   return (
     <div className="relative w-36 h-36 flex items-center justify-center">
       <svg className="absolute inset-0 -rotate-90" width="144" height="144">
-        <circle cx="72" cy="72" r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="10" />
+        <circle cx="72" cy="72" r={r} fill="none" stroke="currentColor" className="text-slate-200 dark:text-white/10" strokeWidth="10" />
         <circle cx="72" cy="72" r={r} fill="none" stroke={colour} strokeWidth="10"
           strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
           style={{ transition: "stroke-dashoffset 1s ease" }} />
       </svg>
       <div className="flex flex-col items-center">
-        <span className="text-3xl font-black text-white leading-none">{score}</span>
-        <span className="text-xs font-semibold text-white/60 uppercase tracking-wider mt-1">/ 100</span>
+        <span className="text-3xl font-black text-on-surface leading-none">{score}</span>
+        <span className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mt-1">/ 100</span>
       </div>
     </div>
   );
@@ -272,16 +272,16 @@ type MetricBarProps = { metric: SkinMetric; higherIsBetter: boolean };
 function MetricBar({ metric, higherIsBetter }: MetricBarProps): React.JSX.Element {
   const pct = Math.min(100, Math.max(0, metric.value));
   const barColour = higherIsBetter
-    ? pct >= 70 ? "bg-emerald-400" : pct >= 40 ? "bg-amber-400" : "bg-rose-400"
-    : pct <= 30 ? "bg-emerald-400" : pct <= 60 ? "bg-amber-400" : "bg-rose-400";
+    ? pct >= 70 ? "bg-primary" : pct >= 40 ? "bg-amber-400" : "bg-rose-400"
+    : pct <= 30 ? "bg-primary" : pct <= 60 ? "bg-amber-400" : "bg-rose-400";
 
   return (
     <div className="space-y-1.5">
       <div className="flex justify-between items-baseline">
-        <p className="text-[11px] font-bold uppercase tracking-widest text-white/50">{metric.label}</p>
-        <p className="text-lg font-black text-white">{Math.round(pct)}%</p>
+        <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/70">{metric.label}</p>
+        <p className="text-lg font-black text-on-surface">{Math.round(pct)}%</p>
       </div>
-      <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+      <div className="w-full h-1.5 rounded-full bg-surface-container overflow-hidden">
         <div className={`${barColour} h-full rounded-full transition-all duration-1000`} style={{ width: `${pct}%` }} />
       </div>
     </div>
@@ -298,8 +298,8 @@ const SEVERITY_STYLE: Record<string, string> = {
 };
 
 function severityStyle(s: string | undefined): string {
-  if (!s) return "border-white/10 bg-white/5 text-white/70";
-  return SEVERITY_STYLE[s.toLowerCase()] ?? "border-white/10 bg-white/5 text-white/70";
+  if (!s) return "border-slate-200 dark:border-white/10 bg-surface-container-low text-on-surface-variant";
+  return SEVERITY_STYLE[s.toLowerCase()] ?? "border-slate-200 dark:border-white/10 bg-surface-container-low text-on-surface-variant";
 }
 
 type ConcernCardProps = { concern: SkinConcern; index: number };
@@ -307,7 +307,7 @@ type ConcernCardProps = { concern: SkinConcern; index: number };
 function ConcernCard({ concern, index }: ConcernCardProps): React.JSX.Element {
   const ICONS = ["⚡", "💧", "🔬", "☀️", "🌿", "🔴", "💨"];
   return (
-    <div className={`flex gap-4 p-4 rounded-2xl border ${severityStyle(concern.severity)}`}>
+    <div className={`flex gap-4 p-4 rounded-2xl border transition-all duration-300 hover:shadow-md ${severityStyle(concern.severity)}`}>
       <div className="text-2xl mt-0.5 shrink-0">{ICONS[index % ICONS.length]}</div>
       <div className="flex-1 min-w-0">
         <div className="flex flex-wrap gap-2 items-center mb-1">
@@ -318,14 +318,14 @@ function ConcernCard({ concern, index }: ConcernCardProps): React.JSX.Element {
             </span>
           )}
           {concern.priority && (
-            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-300 border border-rose-500/30">
               Priority
             </span>
           )}
         </div>
-        {concern.description && <p className="text-xs text-white/60 leading-relaxed">{concern.description}</p>}
-        {concern.location && <p className="text-xs text-white/40 mt-1">📍 {concern.location}</p>}
-        {concern.intensity !== undefined && <p className="text-xs text-white/40 mt-1">Intensity: {concern.intensity}</p>}
+        {concern.description && <p className="text-xs text-on-surface-variant leading-relaxed">{concern.description}</p>}
+        {concern.location && <p className="text-xs text-on-surface-variant/60 mt-1">📍 {concern.location}</p>}
+        {concern.intensity !== undefined && <p className="text-xs text-on-surface-variant/60 mt-1">Intensity: {concern.intensity}</p>}
       </div>
     </div>
   );
@@ -347,10 +347,10 @@ function RecCard({ rec, index }: RecCardProps): React.JSX.Element {
   const subtitle = rec.ingredient ?? rec.category ?? rec.type ?? "";
   const body = rec.reason ?? rec.description ?? "";
   return (
-    <div className={`rounded-2xl border border-white/10 bg-linear-to-br ${REC_GRADIENTS[index % REC_GRADIENTS.length]} p-5 flex flex-col gap-2 hover:border-white/20 transition-all duration-300 hover:-translate-y-0.5`}>
-      {subtitle && <span className="text-[10px] font-black uppercase tracking-widest text-white/50">{subtitle}</span>}
-      <h4 className="font-bold text-white text-sm leading-tight">{title}</h4>
-      {body && <p className="text-xs text-white/60 leading-relaxed">{body}</p>}
+    <div className={`rounded-2xl border border-slate-200 dark:border-white/10 bg-linear-to-br ${REC_GRADIENTS[index % REC_GRADIENTS.length]} p-5 flex flex-col gap-2 hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5`}>
+      {subtitle && <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60">{subtitle}</span>}
+      <h4 className="font-bold text-on-surface text-sm leading-tight">{title}</h4>
+      {body && <p className="text-xs text-on-surface-variant leading-relaxed">{body}</p>}
     </div>
   );
 }
@@ -361,14 +361,14 @@ function ExtrasTable({ extras }: ExtrasProps): React.JSX.Element | null {
   if (extras.length === 0) return null;
   return (
     <div className="mt-8">
-      <h3 className="text-xs font-black uppercase tracking-widest text-white/30 mb-3">Additional Data</h3>
-      <div className="rounded-2xl border border-white/10 overflow-hidden divide-y divide-white/5">
+      <h3 className="text-xs font-black uppercase tracking-widest text-on-surface-variant/40 mb-3">Additional Data</h3>
+      <div className="rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
         {extras.map(({ key, value }) => (
-          <div key={key} className="flex gap-4 px-4 py-2.5 hover:bg-white/5 transition-colors">
-            <span className="text-xs font-bold text-white/40 uppercase tracking-wide min-w-35 shrink-0">
+          <div key={key} className="flex gap-4 px-4 py-2.5 hover:bg-surface-container transition-colors">
+            <span className="text-xs font-bold text-on-surface-variant/50 uppercase tracking-wide min-w-35 shrink-0">
               {key.replace(/_/g, " ")}
             </span>
-            <span className="text-xs text-white/70 font-mono break-all">{value}</span>
+            <span className="text-xs text-on-surface-variant font-mono break-all">{value}</span>
           </div>
         ))}
       </div>
@@ -384,16 +384,16 @@ type EmptyStateProps = { onRetake: () => void };
 
 function EmptyState({ onRetake }: EmptyStateProps): React.JSX.Element {
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center px-6">
+    <div className="min-h-screen bg-background flex items-center justify-center px-6">
       <div className="text-center">
         <div className="text-6xl mb-6">🔬</div>
-        <h2 className="text-2xl font-black text-white mb-3">No analysis found</h2>
-        <p className="text-white/50 text-sm mb-8">
+        <h2 className="text-2xl font-black text-on-surface mb-3">No analysis found</h2>
+        <p className="text-on-surface-variant text-sm mb-8">
           Run a scan first to see your skin analysis results.
         </p>
         <button
           onClick={onRetake}
-          className="px-8 py-3 bg-white text-black font-bold rounded-full hover:bg-white/90 transition-colors"
+          className="px-8 py-3 bg-primary text-on-primary font-bold rounded-full hover:opacity-90 transition-all shadow-lg"
         >
           Start a Scan
         </button>
@@ -427,162 +427,149 @@ export default function DashboardPage(): React.JSX.Element {
     router.push("/analysis");
   };
 
-  // Resolve which data to display
-  const displayRaw: RawSkinAnalysis | null = raw;
-
-  // No data + no dev scenario = empty state
-  if (!displayRaw) {
+  if (!raw) {
     return <EmptyState onRetake={handleRetake} />;
   }
 
   const score = routine?.overall_score ?? null;
-  const metrics = extractMetrics(displayRaw);
-  const concerns = extractConcerns(displayRaw);
-  const recommendations = extractRecommendations(displayRaw);
-  const extras = extractExtras(displayRaw);
+  const metrics = extractMetrics(raw);
+  const concerns = extractConcerns(raw);
+  const recommendations = extractRecommendations(raw);
+  const extras = extractExtras(raw);
 
-  const skinType = displayRaw.skin_type ?? displayRaw.skin_tone ?? null;
-  const ageEst = displayRaw.age_estimate ?? displayRaw.estimated_age ?? displayRaw.skin_age ?? null;
+  const skinType = raw.skin_type ?? raw.skin_tone ?? null;
+  const ageEst = raw.age_estimate ?? raw.estimated_age ?? raw.skin_age ?? null;
 
   const now = new Date();
   const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const dateStr = now.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 
   return (
-    <>
-      <main className="min-h-screen bg-[#0a0a0f] text-white pt-24 pb-20 px-4 md:px-8">
-        <div className="max-w-6xl mx-auto">
-
-          {/* ── Header ─────────────────────────────────────────────────────── */}
-          <header className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-[0.25em] text-white/30 block mb-2">
-                Clinical Dashboard
+    <main className="min-h-screen bg-background text-on-surface pt-24 pb-20 px-4 md:px-8">
+      <div className="max-w-6xl mx-auto">
+        <header className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
+          <div>
+            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-on-surface-variant/40 block mb-2">
+              Clinical Dashboard
+            </span>
+            <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-none text-on-surface">
+              Analysis{" "}
+              <span className="text-transparent bg-clip-text bg-linear-to-r from-primary to-cyan-500">
+                Results
               </span>
-              <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-none">
-                Analysis{" "}
-                <span className="text-transparent bg-clip-text bg-linear-to-r from-violet-400 to-cyan-400">
-                  Results
-                </span>
-              </h1>
-              <p className="text-sm text-white/40 mt-3">
-                Scan completed {dateStr} at {timeStr}
-              </p>
+            </h1>
+            <p className="text-sm text-on-surface-variant/60 mt-3">
+              Scan completed {dateStr} at {timeStr}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handleRetake}
+              className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-bold text-on-surface-variant hover:border-primary hover:text-primary transition-all duration-200"
+            >
+              ↩ Redo Scan
+            </button>
+            <button
+              onClick={() => setShowRaw((p) => !p)}
+              className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-bold text-on-surface-variant/70 hover:border-primary hover:text-primary transition-all duration-200"
+            >
+              {showRaw ? "Hide" : "View"} Raw JSON
+            </button>
+          </div>
+        </header>
+
+        {showRaw && (
+          <div className="mb-8 rounded-2xl border border-slate-200 dark:border-white/10 bg-surface-container-low overflow-auto p-5 max-h-96 shadow-inner">
+            <pre className="text-xs font-mono text-primary whitespace-pre-wrap">
+              {JSON.stringify(raw, null, 2)}
+            </pre>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* LEFT: Score + Metrics */}
+          <div className="lg:col-span-4 flex flex-col gap-5">
+            <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-surface-container-lowest p-7 flex flex-col items-center gap-4 shadow-sm">
+              <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/40">Health Score</span>
+              {score !== null ? (
+                <ScoreRing score={score} />
+              ) : (
+                <div className="text-5xl font-black text-on-surface-variant/20">—</div>
+              )}
+              {skinType && (
+                <div className="px-4 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-bold uppercase tracking-wider">
+                  {String(skinType)} Skin
+                </div>
+              )}
+              {ageEst && (
+                <p className="text-xs text-on-surface-variant/60">
+                  Estimated skin age: <span className="text-on-surface font-bold">{String(ageEst)}</span>
+                </p>
+              )}
             </div>
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={handleRetake}
-                className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-bold text-white/70 hover:border-white/20 hover:text-white transition-all duration-200"
-              >
-                ↩ Redo Scan
-              </button>
-              <button
-                onClick={(): void => setShowRaw((p) => !p)}
-                className="px-5 py-2.5 rounded-xl border border-white/10 text-sm font-bold text-white/50 hover:border-white/20 hover:text-white transition-all duration-200"
-              >
-                {showRaw ? "Hide" : "View"} Raw JSON
-              </button>
-            </div>
-          </header>
-
-          {/* ── Raw JSON toggle ─────────────────────────────────────────────── */}
-          {showRaw && (
-            <div className="mb-8 rounded-2xl border border-white/10 bg-white/5 overflow-auto p-5 max-h-96">
-              <pre className="text-xs font-mono text-emerald-400 whitespace-pre-wrap">
-                {JSON.stringify(displayRaw, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          {/* ── Main grid ───────────────────────────────────────────────────── */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-
-            {/* LEFT: Score + Metrics */}
-            <div className="lg:col-span-4 flex flex-col gap-5">
-              <div className="rounded-3xl border border-white/10 bg-linear-to-br from-white/5 to-white/2 p-7 flex flex-col items-center gap-4">
-                <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Health Score</span>
-                {score !== null ? (
-                  <ScoreRing score={score} />
-                ) : (
-                  <div className="text-5xl font-black text-white/20">—</div>
-                )}
-                {skinType && (
-                  <div className="px-4 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 text-xs font-bold uppercase tracking-wider">
-                    {String(skinType)} Skin
-                  </div>
-                )}
-                {ageEst && (
-                  <p className="text-xs text-white/30">
-                    Estimated skin age: <span className="text-white/60 font-bold">{String(ageEst)}</span>
-                  </p>
-                )}
+            {metrics.length > 0 && (
+              <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-surface-container-lowest p-6 flex flex-col gap-4 shadow-sm">
+                <h3 className="text-xs font-black uppercase tracking-widest text-on-surface-variant/40 mb-1">Skin Metrics</h3>
+                {metrics.map((m) => {
+                  const meta = METRIC_KEYS.find((mk) => mk.label.toLowerCase() === m.label.toLowerCase());
+                  return <MetricBar key={m.label} metric={m} higherIsBetter={meta?.higherIsBetter ?? true} />;
+                })}
               </div>
+            )}
+          </div>
 
-              {metrics.length > 0 && (
-                <div className="rounded-3xl border border-white/10 bg-linear-to-br from-white/5 to-white/2 p-6 flex flex-col gap-4">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-white/30 mb-1">Skin Metrics</h3>
-                  {metrics.map((m) => {
-                    const meta = METRIC_KEYS.find((mk) => mk.label.toLowerCase() === m.label.toLowerCase());
-                    return <MetricBar key={m.label} metric={m} higherIsBetter={meta?.higherIsBetter ?? true} />;
-                  })}
+          {/* RIGHT: Concerns + Recommendations */}
+          <div className="lg:col-span-8 flex flex-col gap-5">
+            {concerns.length > 0 && (
+              <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-surface-container-lowest p-6 shadow-sm">
+                <div className="flex items-center gap-2 mb-5">
+                  <span className="text-base">⚠️</span>
+                  <h2 className="text-sm font-black uppercase tracking-widest text-on-surface-variant/50">Detected Concerns</h2>
+                  <span className="ml-auto px-2.5 py-0.5 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant">
+                    {concerns.length}
+                  </span>
                 </div>
-              )}
-            </div>
-
-            {/* RIGHT: Concerns + Recommendations */}
-            <div className="lg:col-span-8 flex flex-col gap-5">
-              {concerns.length > 0 && (
-                <div className="rounded-3xl border border-white/10 bg-linear-to-br from-white/5 to-white/2 p-6">
-                  <div className="flex items-center gap-2 mb-5">
-                    <span className="text-base">⚠️</span>
-                    <h2 className="text-sm font-black uppercase tracking-widest text-white/50">Detected Concerns</h2>
-                    <span className="ml-auto px-2.5 py-0.5 rounded-full bg-white/10 text-xs font-bold text-white/50">
-                      {concerns.length}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-3">
-                    {concerns.map((c, i) => (
-                      <ConcernCard key={`${c.name}-${i}`} concern={c} index={i} />
-                    ))}
-                  </div>
+                <div className="flex flex-col gap-3">
+                  {concerns.map((c, i) => (
+                    <ConcernCard key={`${c.name}-${i}`} concern={c} index={i} />
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
 
-              {recommendations.length > 0 && (
-                <div className="rounded-3xl border border-white/10 bg-linear-to-br from-white/5 to-white/2 p-6">
-                  <div className="flex items-center gap-2 mb-5">
-                    <span className="text-base">✦</span>
-                    <h2 className="text-sm font-black uppercase tracking-widest text-white/50">Precision Formulations</h2>
-                    <span className="ml-auto px-2.5 py-0.5 rounded-full bg-white/10 text-xs font-bold text-white/50">
-                      {recommendations.length}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {recommendations.map((r, i) => (
-                      <RecCard key={i} rec={r} index={i} />
-                    ))}
-                  </div>
+            {recommendations.length > 0 && (
+              <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-surface-container-lowest p-6 shadow-sm">
+                <div className="flex items-center gap-2 mb-5">
+                  <span className="text-base">✦</span>
+                  <h2 className="text-sm font-black uppercase tracking-widest text-on-surface-variant/50">Precision Formulations</h2>
+                  <span className="ml-auto px-2.5 py-0.5 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant">
+                    {recommendations.length}
+                  </span>
                 </div>
-              )}
-
-              {concerns.length === 0 && recommendations.length === 0 && metrics.length === 0 && (
-                <div className="rounded-3xl border border-white/10 bg-white/2 p-8 flex flex-col items-center text-center gap-3">
-                  <span className="text-4xl">✅</span>
-                  <h3 className="font-bold text-white">Your skin looks great!</h3>
-                  <p className="text-sm text-white/40">
-                    No specific concerns detected. Keep up your current routine.
-                  </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {recommendations.map((r, i) => (
+                    <RecCard key={i} rec={r} index={i} />
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
 
-              <ExtrasTable extras={extras} />
-            </div>
+            {concerns.length === 0 && recommendations.length === 0 && metrics.length === 0 && (
+              <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-surface-container-lowest p-8 flex flex-col items-center text-center gap-3 shadow-sm">
+                <span className="text-4xl">✅</span>
+                <h3 className="font-bold text-on-surface">Your skin looks great!</h3>
+                <p className="text-sm text-on-surface-variant/60">
+                  No specific concerns detected. Keep up your current routine.
+                </p>
+              </div>
+            )}
+
+            <ExtrasTable extras={extras} />
           </div>
         </div>
-      </main>
-
-
-    </>
+      </div>
+    </main>
   );
 }
