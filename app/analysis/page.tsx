@@ -48,6 +48,11 @@ type RoutineData = {
   outfit_suggestions: RoutineItem[];
 };
 
+type ApiErrorResponse = {
+  detail?: string;
+  message?: string;
+};
+
 // ---------------Component----------------------------
 
 export default function AnalysisPage(): React.JSX.Element {
@@ -183,7 +188,26 @@ export default function AnalysisPage(): React.JSX.Element {
       return "Network error. Check your internet connection.";
     }
 
-    return err instanceof Error ? err.message : "Something went wrong.";
+    const message = err instanceof Error ? err.message : "Something went wrong.";
+
+    // Humanize technical API errors
+    if (message.includes("face_out_of_bound")) {
+      return "Face is out of bounds. Please center your face clearly within the oval guide.";
+    }
+    if (message.includes("no_face_detected")) {
+      return "No face detected. Please ensure you are in a well-lit area and looking directly at the camera.";
+    }
+    if (message.includes("lighting_dark")) {
+      return "The environment is too dark. Please move to a better-lit area or turn on a light for an accurate scan.";
+    }
+    if (message.includes("lighting_bright")) {
+      return "The environment is too bright. Please avoid direct glare or harsh lights for a better scan.";
+    }
+    if (message.includes("blurry")) {
+      return "The image is too blurry. Please hold your device steady and ensure your face is in focus.";
+    }
+
+    return message;
   };
 
   //  ------------------INIT CAMERA + MEDIAPIPE (LAZY)------------------------
@@ -237,7 +261,11 @@ export default function AnalysisPage(): React.JSX.Element {
         responseText = await res.text();
         console.log(responseText)
         data = JSON.parse(responseText);
-        if (!res.ok) throw new Error((responseText as unknown as { message: string })?.message || "Analysis failed");
+        if (!res.ok) {
+          const apiData = data as ApiErrorResponse;
+          const apiError = apiData.detail || apiData.message;
+          throw new Error(apiError || `Analysis failed with status ${res.status}`);
+        }
 
         setPreviewUrl(dataUrl);
         stopCamera();
@@ -675,7 +703,7 @@ export default function AnalysisPage(): React.JSX.Element {
                     <p className="text-sm text-white/70 mb-8">{cameraError}</p>
                     <Button
                       onClick={handleRetake}
-                      className="w-full py-6 rounded-2xl"
+                      className="w-45 py-6 rounded-2xl"
                       variant="destructive"
                     >
                       Retake Photo
