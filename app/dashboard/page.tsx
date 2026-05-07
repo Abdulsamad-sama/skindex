@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
+import { ExternalLink, ShoppingCart } from "lucide-react";
 
 // ─── API Response Types ───────────────────────────────────────────────────────
 
@@ -200,12 +201,12 @@ function ScoreRing({ score }: ScoreRingProps): React.JSX.Element {
 
 
 const SEVERITY_STYLE: Record<string, string> = {
-  high: "border-rose-500/40 bg-rose-500/10 text-rose-300",
-  medium: "border-amber-500/40 bg-amber-500/10 text-amber-300",
-  moderate: "border-orange-500/40 bg-orange-500/10 text-orange-300",
-  low: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
-  mild: "border-amber-500/40 bg-amber-500/10 text-amber-300",
-  severe: "border-rose-500/40 bg-rose-500/10 text-rose-300",
+  high: "border-rose-500/20 bg-rose-500/5 text-rose-800 dark:text-rose-300 dark:bg-rose-500/10 dark:border-rose-500/40",
+  medium: "border-amber-500/20 bg-amber-500/5 text-amber-800 dark:text-amber-300 dark:bg-amber-500/10 dark:border-amber-500/40",
+  moderate: "border-orange-500/20 bg-orange-500/5 text-orange-800 dark:text-orange-300 dark:bg-orange-500/10 dark:border-orange-500/40",
+  low: "border-emerald-500/20 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-500/40",
+  mild: "border-amber-500/20 bg-amber-500/5 text-amber-800 dark:text-amber-300 dark:bg-amber-500/10 dark:border-amber-500/40",
+  severe: "border-rose-500/20 bg-rose-500/5 text-rose-800 dark:text-rose-300 dark:bg-rose-500/10 dark:border-rose-500/40",
 };
 
 function severityStyle(s: string | undefined): string {
@@ -234,14 +235,14 @@ function ConcernCard({ concern, index }: ConcernCardProps): React.JSX.Element {
             </span>
           )}
           {concern.priority && (
-            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-800 border border-rose-500/20 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/30">
               Priority
             </span>
           )}
         </div>
-        {concern.description && <p className="text-xs text-on-surface-variant leading-relaxed">{concern.description}</p>}
-        {concern.location && <p className="text-xs text-on-surface-variant/70 mt-1">📍 {concern.location}</p>}
-        {concern.intensity !== undefined && <p className="text-xs text-on-surface-variant/70 mt-1">Intensity: {concern.intensity}</p>}
+        {concern.description && <p className="text-xs text-on-surface-variant leading-relaxed font-medium">{concern.description}</p>}
+        {concern.location && <p className="text-xs text-on-surface-variant/80 mt-1 font-semibold">📍 {concern.location}</p>}
+        {concern.intensity !== undefined && <p className="text-xs text-on-surface-variant/80 mt-1 font-semibold">Intensity: {concern.intensity}</p>}
       </div>
     </motion.div>
   );
@@ -277,10 +278,14 @@ function getProductImage(name: string): string | null {
   if (n.includes("neutrogena") || n.includes("oil-free") || n.includes("moisturizer")) return "/NTG_EMEA_oil_free.webp";
   if (n.includes("elta") || n.includes("sunscreen") || n.includes("uv")) return "/uv-elta.webp";
   if (n.includes("mascara") || n.includes("maybelline")) return "/maybelline-lash-sensational-waterproof-mascara_grande-1.webp";
+  if (n.includes("umbrella")) return "/compact-umbrella.jpg";
+  if (n.includes("linen") || n.includes("breathable")) return "/linen-breathable.webp";
+  if (n.includes("waterproof") || (n.includes("jacket") && n.includes("rain"))) return "/waterproof-jacket.webp";
+  if (n.includes("zip") || n.includes("jacket")) return "/zip_up-removable-jacket.webp";
   return null;
 }
 
-function ProductCard({ item, icon = "🛍️" }: { item: RoutineItem; icon?: string }): React.JSX.Element {
+function ProductCard({ item }: { item: RoutineItem }): React.JSX.Element {
   const img = getProductImage(item.name);
   return (
     <motion.div
@@ -297,17 +302,19 @@ function ProductCard({ item, icon = "🛍️" }: { item: RoutineItem; icon?: str
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-start mb-2">
           <h4 className="font-bold text-sm text-on-surface leading-tight" title={item.name}>{item.name}</h4>
-          <span className="text-lg">{icon}</span>
+
         </div>
         <p className="text-xs text-on-surface-variant mb-4 line-clamp-2">{item.reason}</p>
-        <a
-          href={item.amazon_url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-[10px] font-black text-primary uppercase tracking-widest hover:underline"
-        >
-          View on Amazon ↗
-        </a>
+        <span className="flex items-center gap-1 text-xs font-bold text-primary uppercase tracking-widest hover:underline">
+          <a
+            href={item.amazon_url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            View on Amazon
+          </a>
+          <ShoppingCart size={16} />
+        </span>
       </div>
     </motion.div>
   );
@@ -513,7 +520,7 @@ export default function DashboardPage(): React.JSX.Element {
                         href="/weather"
                         className="px-6 py-2 rounded-full border border-outline-variant text-[10px] font-black uppercase tracking-widest text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-all"
                       >
-                        See More Results
+                        See More Results <ExternalLink className="inline-block ml-2" />
                       </Link>
                     </div>
                   )}
@@ -531,16 +538,16 @@ export default function DashboardPage(): React.JSX.Element {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-4">
                     {routine.outfit_suggestions.slice(0, 4).map((item, i) => (
-                      <ProductCard key={i} item={item} icon="👕" />
+                      <ProductCard key={i} item={item} />
                     ))}
                   </div>
-                  {routine.outfit_suggestions.length > 4 && (
+                  {routine.outfit_suggestions.length && (
                     <div className="flex justify-center mt-6">
                       <Link
                         href="/weather"
                         className="px-6 py-2 rounded-full border border-outline-variant text-[10px] font-black uppercase tracking-widest text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-all"
                       >
-                        See More Results
+                        See More Results <ExternalLink className="inline-block ml-2" />
                       </Link>
                     </div>
                   )}

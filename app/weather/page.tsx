@@ -306,6 +306,10 @@ function getProductImage(name: string): string | null {
   if (n.includes("neutrogena") || n.includes("oil-free") || n.includes("moisturizer")) return "/NTG_EMEA_oil_free.webp";
   if (n.includes("elta") || n.includes("sunscreen") || n.includes("uv")) return "/uv-elta.webp";
   if (n.includes("mascara") || n.includes("maybelline")) return "/maybelline-lash-sensational-waterproof-mascara_grande-1.webp";
+  if (n.includes("umbrella")) return "/compact-umbrella.jpg";
+  if (n.includes("linen") || n.includes("breathable")) return "/linen-breathable.webp";
+  if (n.includes("waterproof") || (n.includes("jacket") && n.includes("rain"))) return "/waterproof-jacket.webp";
+  if (n.includes("zip") || n.includes("jacket")) return "/zip_up-removable-jacket.webp";
   return null;
 }
 

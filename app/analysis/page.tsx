@@ -74,6 +74,26 @@ export default function AnalysisPage(): React.JSX.Element {
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [analysisFailed, setAnalysisFailed] = useState<boolean>(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loadingStep, setLoadingStep] = useState<number>(0);
+
+  const LOADING_STEPS = [
+    "Initializing neural scan...",
+    "Analyzing facial topology...",
+    "Detecting surface imperfections...",
+    "Evaluating hydration & texture...",
+    "Generating precision routine..."
+  ];
+
+  useEffect(() => {
+    if (!loading) {
+      void Promise.resolve().then(() => setLoadingStep(0));
+      return;
+    }
+    const interval = setInterval(() => {
+      setLoadingStep((prev) => (prev + 1) % LOADING_STEPS.length);
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [loading, LOADING_STEPS.length]);
 
   const initInProgressRef = useRef<boolean>(false);
 
@@ -242,10 +262,10 @@ export default function AnalysisPage(): React.JSX.Element {
   // ---------Initialize camera + MediaPipe------------
 
   const init = useCallback(async (): Promise<void> => {
-    if (!videoRef.current || initInProgressRef.current) return;
+    if (!videoRef.current || initInProgressRef.current || loading) return;
 
-    // 🚨 Prevent auto restart loop after failure
-    if (analysisFailed) return;
+    // 🚨 Prevent auto restart loop after failure or success
+    if (analysisFailed || hasCapturedRef.current) return;
 
     initInProgressRef.current = true;
 
@@ -611,58 +631,88 @@ export default function AnalysisPage(): React.JSX.Element {
           <div className="relative w-full aspect-3/4 md:aspect-4/2 bg-black rounded-[2rem] overflow-hidden">
             {showCameraOverlay && (
               <>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
+                {loading && previewUrl ? (
+                  <Image
+                    src={previewUrl}
+                    alt="Capture Preview"
+                    fill
+                    unoptimized
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                ) : (
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                )}
                 <canvas
                   ref={overlayCanvasRef}
                   className="absolute inset-0 w-full h-full"
                 />
+                {/* Scan animation during analysis */}
+                {loading && (
+                  <div className="absolute inset-0 z-10 overflow-hidden pointer-events-none">
+                    <div className="scan-line opacity-60" />
+                  </div>
+                )}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className={`guide-oval w-64 h-80 border-2 border-white/30 rounded-full ${isLocked ? "border-green-400" : "border-red-500"}`} />
+                  <div className={`guide-oval w-64 h-80 border-2 transition-colors duration-500 rounded-full ${isLocked ? "border-primary shadow-[0_0_30px_rgba(0,194,184,0.4)]" : "border-white/30"}`} />
+                  {isLocked && !loading && (
+                    <div className="absolute top-1/2 -translate-y-1/2 w-72 h-0.5 scanning-line animate-pulse" />
+                  )}
                 </div>
               </>
             )}
-            {(!ready || cameraError) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white">
-                {cameraError && analysisFailed && (
 
-                  <div className="text-center">
-                    <p className="text-red-400 font-bold mb-2">Capture Failed</p>
-                    <p className="text-sm text-white/70">{cameraError}</p>
-                    <div className="mt-lg flex flex-col justify-center items-center gap-md ">
-
-                      {/* Only show retake button when capture/analysis failed */}
-                      {analysisFailed ? (
-                        <Button
-                          onClick={handleRetake}
-                          className="w-full py-lg"
-                          variant="default"
-                        >
-                          Retake Photo
-                        </Button>
-                      ) : (
-                        <Button disabled className="py-lg text-white">
-                          {loading ? "Analyzing…" : "Auto Capturing…"}
-                        </Button>
-                      )}
-
-
-                      <div className="mt-md text-center">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/40">
-                          Face detection active • Please keep still
-                        </p>
+            {(loading || !ready || cameraError) && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm text-white z-20">
+                {cameraError && analysisFailed ? (
+                  <div className="text-center p-6">
+                    <p className="text-red-400 font-bold mb-2 text-lg">Capture Failed</p>
+                    <p className="text-sm text-white/70 mb-8">{cameraError}</p>
+                    <Button
+                      onClick={handleRetake}
+                      className="w-full py-6 rounded-2xl"
+                      variant="destructive"
+                    >
+                      Retake Photo
+                    </Button>
+                  </div>
+                ) : loading ? (
+                  <div className="flex flex-col items-center gap-6 p-6 text-center">
+                    <div className="relative">
+                      <Loader2 className="w-16 h-16 text-primary animate-spin" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-8 h-8 bg-primary/20 rounded-full animate-ping" />
                       </div>
                     </div>
+                    <div>
+                      <p className="text-xl font-black mb-2 tracking-tight">
+                        {LOADING_STEPS[loadingStep]}
+                      </p>
+                      <p className="text-sm text-white/50 uppercase tracking-widest font-bold">
+                        Analysis in progress
+                      </p>
+                    </div>
                   </div>
-
+                ) : (
+                  <div className="flex flex-col items-center gap-4">
+                    <Loader2 className="w-8 h-8 text-primary/50 animate-spin" />
+                    <p className="text-sm font-bold text-white/30 uppercase tracking-widest">
+                      Initializing Camera...
+                    </p>
+                  </div>
                 )}
               </div>
             )}
+            <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none z-10">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 bg-black/20 px-4 py-1 rounded-full backdrop-blur-md">
+                {isLocked ? "Ready to analyze" : "Position face in guide"}
+              </p>
+            </div>
           </div>
         </div>
         {/* RIGHT SIDE */}
@@ -688,12 +738,17 @@ export default function AnalysisPage(): React.JSX.Element {
                 />
                 <div className="relative z-10 flex flex-col items-center text-center p-lg">
                   {loading ? (
-                    <>
-                      <Loader2 className="w-12 h-12 text-primary animate-spin mb-md" />
-                      <p className="font-h3 text-on-background">
-                        Analyzing your skin...
+                    <div className="flex flex-col items-center">
+                      <div className="relative w-16 h-16 mb-md">
+                        <Loader2 className="absolute inset-0 w-full h-full text-primary animate-spin" />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-8 h-8 bg-primary/20 rounded-full animate-ping" />
+                        </div>
+                      </div>
+                      <p className="font-h3 text-on-background animate-pulse">
+                        {LOADING_STEPS[loadingStep]}
                       </p>
-                    </>
+                    </div>
                   ) : (
                     <>
                       <Check className="w-12 h-12 text-primary mb-md" />
@@ -759,11 +814,17 @@ export default function AnalysisPage(): React.JSX.Element {
               className="hidden"
             />
             {loading && (
-              <div className="mt-md w-full bg-surface-container rounded-full h-1 overflow-hidden">
-                <div
-                  className="bg-primary h-full animate-progress"
-                  style={{ width: "100%" }}
-                />
+              <div className="mt-md w-full space-y-2">
+                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-on-surface-variant">
+                  <span>Analysis Progress</span>
+                  <span>{Math.round(((loadingStep + 1) / LOADING_STEPS.length) * 100)}%</span>
+                </div>
+                <div className="w-full bg-surface-container rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-primary h-full transition-all duration-500 ease-out"
+                    style={{ width: `${((loadingStep + 1) / LOADING_STEPS.length) * 100}%` }}
+                  />
+                </div>
               </div>
             )}
           </div>
