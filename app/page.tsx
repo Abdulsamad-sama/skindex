@@ -1,6 +1,6 @@
 "use client"
 import Link from "next/link";
-import { Button } from '@/components/ui/button';
+import Image from "next/image";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { motion } from 'framer-motion';
@@ -26,8 +26,8 @@ const TestimonialCard: React.FC<TestimonialCardProps> = ({ name, role, content, 
     <Card className="h-full border-purple-100 bg-white/80 backdrop-blur-sm hover:shadow-xl transition-all">
       <CardHeader>
         <div className="flex items-center gap-4">
-          <div className="h-14 w-14 rounded-full bg-linear-to-br from-purple-200 to-pink-200 overflow-hidden">
-            <img src={image} alt={name} className="h-full w-full object-cover" />
+          <div className="relative h-14 w-14 rounded-full bg-linear-to-br from-purple-200 to-pink-200 overflow-hidden">
+            <Image src={image} alt={name} fill sizes="56px" className="object-cover" />
           </div>
           <div>
             <CardTitle className="text-lg text-gray-800">{name}</CardTitle>

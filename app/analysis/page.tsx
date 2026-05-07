@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-import { Upload, Image as ImageIcon, Loader2, Check } from "lucide-react";
+import { Upload, Loader2, Check } from "lucide-react";
+import Image from "next/image";
 
 //------------ Camera response Types----------------------------
 type FaceDetectionBoundingBox = {
@@ -58,11 +59,12 @@ export default function AnalysisPage(): React.JSX.Element {
   const cameraRef = useRef<CameraInstance | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const faceDetectionRef = useRef<FaceDetectionInstance | null>(null);
-  const faceDetectionModuleRef = useRef<any>(null);
-  const cameraModuleRef = useRef<any>(null);
+  const faceDetectionModuleRef = useRef<typeof import("@mediapipe/face_detection") | null>(null);
+  const cameraModuleRef = useRef<typeof import("@mediapipe/camera_utils") | null>(null);
   const hasCapturedRef = useRef(false);
-
   const stableCounter = useRef(0);
+  const isStoppingRef = useRef<boolean>(false);
+
 
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
@@ -74,6 +76,9 @@ export default function AnalysisPage(): React.JSX.Element {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const initInProgressRef = useRef<boolean>(false);
+
+
+
 
   // ── Success Handler ────────────────────────────────────────────────────────
 
@@ -100,7 +105,7 @@ export default function AnalysisPage(): React.JSX.Element {
             );
 
             if (res.ok) {
-              const routineData = await res.json();
+              const routineData = await res.json() as RoutineData
               sessionStorage.setItem("skinRoutineData", JSON.stringify(routineData));
             }
           } catch (err) {
@@ -118,26 +123,48 @@ export default function AnalysisPage(): React.JSX.Element {
   }, [router]);
 
   //  ----------------STOP CAMERA------------------------------------
-  const stopCamera = useCallback(() => {
-    cameraRef.current?.stop();
+  const stopCamera = useCallback((): void => {
+    if (isStoppingRef.current) return;
+    isStoppingRef.current = true;
+
+    try {
+      cameraRef.current?.stop();
+    } catch { }
+
     cameraRef.current = null;
 
-    if (faceDetectionRef.current) {
-      try {
-        faceDetectionRef.current.close();
-      } catch (e) {
-        console.warn("Error closing face detection:", e);
-      }
-      faceDetectionRef.current = null;
-    }
+    try {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    } catch { }
 
-    streamRef.current
-      ?.getTracks()
-      .forEach((track: MediaStreamTrack) => track.stop());
     streamRef.current = null;
 
-    if (videoRef.current) videoRef.current.srcObject = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    // 🚫 DO NOT call faceDetection.close()
+    faceDetectionRef.current = null;
+
+    setReady(false);
+
+    // ✅ keep it locked for the rest of the tick
+    setTimeout(() => {
+      isStoppingRef.current = false;
+    }, 0);
   }, []);
+
+  const getErrorMessage = (err: unknown): string => {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return "Request timed out. Please try again.";
+    }
+
+    if (err instanceof TypeError && err.message === "Failed to fetch") {
+      return "Network error. Check your internet connection.";
+    }
+
+    return err instanceof Error ? err.message : "Something went wrong.";
+  };
 
   //  ------------------INIT CAMERA + MEDIAPIPE (LAZY)------------------------
   const capturePhoto = useCallback(async () => {
@@ -156,57 +183,79 @@ export default function AnalysisPage(): React.JSX.Element {
     if (!ctx) {
       setLoading(false);
       setCameraError("Failed to get canvas context");
+      setAnalysisFailed(true);
+      stopCamera();
       return;
     }
     ctx.drawImage(video, 0, 0);
+    stopCamera();
 
     const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
 
-    canvas.toBlob(async (blob) => {
+    canvas.toBlob(async (blob: Blob | null): Promise<void> => {
       if (!blob) {
         setLoading(false);
         setCameraError("Failed to process image");
+        setAnalysisFailed(true);
+        stopCamera();
         return;
       }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
+      let data: SkinAnalysisResult = {}
+      let responseText: string = "";
       try {
         const formData = new FormData();
         formData.append("file", blob, "face.jpg");
 
         const res = await fetch(
           "https://skin-analysis-production.up.railway.app/api/skin/analyze",
-          { method: "POST", body: formData }
+          { method: "POST", body: formData, signal: controller.signal }
         );
 
-        const data = (await res.json()) as SkinAnalysisResult;
-        if (!res.ok) throw new Error((data?.message as string) || "Analysis failed");
+        responseText = await res.text();
+        console.log(responseText)
+        data = JSON.parse(responseText);
+        if (!res.ok) throw new Error((responseText as unknown as { message: string })?.message || "Analysis failed");
 
+        setPreviewUrl(dataUrl);
         stopCamera();
         await handleAnalysisSuccess(data, dataUrl);
+
       } catch (err: unknown) {
-        setCameraError(err instanceof Error ? err.message : String(err));
+        console.error("Analysis error:", err);
+        console.error("Response text:", responseText);
+        setCameraError(getErrorMessage(err));
         setAnalysisFailed(true);
         setIsLocked(false);
-        hasCapturedRef.current = false; // Allow manual retry to trigger again
+        stopCamera();
+        hasCapturedRef.current = false;
       } finally {
         setLoading(false);
+        clearTimeout(timeoutId);
       }
     }, "image/jpeg", 0.95);
   }, [loading, stopCamera, handleAnalysisSuccess]);
 
-  const init = useCallback(async () => {
+
+  // ---------Initialize camera + MediaPipe------------
+
+  const init = useCallback(async (): Promise<void> => {
     if (!videoRef.current || initInProgressRef.current) return;
+
+    // 🚨 Prevent auto restart loop after failure
+    if (analysisFailed) return;
+
     initInProgressRef.current = true;
 
     try {
-      // 1. Full Stop & Cleanup previous instance if any
       stopCamera();
-      
-      // 2. Clear refs to be sure
+
       faceDetectionRef.current = null;
       cameraRef.current = null;
 
-      // 3. Lazy load modules once
+      // ✅ Lazy load once
       if (!faceDetectionModuleRef.current) {
         faceDetectionModuleRef.current = await import("@mediapipe/face_detection");
       }
@@ -230,48 +279,58 @@ export default function AnalysisPage(): React.JSX.Element {
       streamRef.current = stream;
 
       const faceDetection = new FaceDetection({
-        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
+        locateFile: (file: string) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
       }) as FaceDetectionInstance;
 
       faceDetection.setOptions({ model: "short", minDetectionConfidence: 0.6 });
 
       faceDetection.onResults((results: FaceDetectionResult) => {
-        if (!overlayCanvasRef.current || !videoRef.current || !faceDetectionRef.current) return;
+        if (!overlayCanvasRef.current || !videoRef.current) return;
 
         const canvas = overlayCanvasRef.current;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        canvas.width = videoRef.current.videoWidth;
-        canvas.height = videoRef.current.videoHeight;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const video = videoRef.current;
 
         const detection = results.detections?.[0];
         if (!detection) {
           stableCounter.current = 0;
           setIsLocked(false);
+
+          const ctx = canvas.getContext("2d");
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+
           return;
         }
 
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
         const box = detection.boundingBox;
         const faceWidth = box.width;
-        const valid = faceWidth > 0.4 && faceWidth < 0.8 &&
+        const isPositionValid = faceWidth > 0.4 && faceWidth < 0.8 &&
           Math.abs(box.xCenter - 0.5) < 0.15 &&
           Math.abs(box.yCenter - 0.5) < 0.2;
 
-        if (valid) {
+        if (isPositionValid) {
           stableCounter.current += 1;
+
           if (stableCounter.current > 15 && !loading && !hasCapturedRef.current) {
-            hasCapturedRef.current = true;
             setIsLocked(true);
-            void capturePhoto();
+
+            hasCapturedRef.current = true;
+            capturePhoto();
           }
         } else {
           stableCounter.current = 0;
           setIsLocked(false);
         }
-
-        ctx.strokeStyle = valid ? "#4ade80" : "#f87171";
+        const isStable = stableCounter.current > 15;
+        ctx.strokeStyle = isStable ? "#4ade80" : "#f87171";
         ctx.lineWidth = 3;
         ctx.strokeRect(
           box.xCenter * canvas.width - (faceWidth * canvas.width) / 2,
@@ -294,35 +353,154 @@ export default function AnalysisPage(): React.JSX.Element {
       camera.start();
       cameraRef.current = camera;
       faceDetectionRef.current = faceDetection;
+
       setReady(true);
       setCameraError(null);
+
     } catch (err) {
       console.error(err);
       setCameraError("Failed to initialize camera. Please check permissions.");
     } finally {
       initInProgressRef.current = false;
     }
-  }, [loading, capturePhoto, stopCamera]);
+  }, [analysisFailed, stopCamera, capturePhoto, loading]);
 
-  // --------------- RESTART----------------------------
-  const restartCamera = useCallback(async () => {
-    if (!cameraRef.current) {
-      await init();
+
+  // ── Upload fallback ────────────────────────────────────────────────────────
+  const handleUpload = useCallback(async (file: File): Promise<void> => {
+    stopCamera();
+    setLoading(true);
+    setUploadError(null);
+    setAnalysisFailed(false);
+
+    if (!navigator.onLine) {
+      setUploadError("You're offline. Check your internet connection.");
+      setAnalysisFailed(true);
+      setLoading(false);
+      return;
     }
-  }, [init]);
+
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewUrl(objectUrl);
+
+    try {
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error("File size must be less than 5MB");
+      }
+
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            resolve(reader.result);
+          } else {
+            reject(new Error("Failed to read image file"));
+          }
+        };
+
+        reader.onerror = () => reject(new Error("Failed to read image file"));
+        reader.readAsDataURL(file);
+      });
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      try {
+        const res = await fetch(
+          "https://skin-analysis-production.up.railway.app/api/skin/analyze",
+          {
+            method: "POST",
+            body: formData,
+            signal: controller.signal,
+          }
+        );
+
+        // ---------------- READ RESPONSE ----------------
+        const contentType = res.headers.get("content-type") || "";
+        const rawResponse = await res.text();
+
+        console.log("Status:", res.status);
+        console.log("Content-Type:", contentType);
+        console.log("Raw Response:", rawResponse);
+
+        // ---------------- EMPTY RESPONSE ----------------
+        if (!rawResponse || rawResponse.trim() === "") {
+          throw new Error("Server returned an empty response");
+        }
+
+        // ---------------- INVALID RESPONSE TYPE ----------------
+        if (!contentType.includes("application/json")) {
+          throw new Error(
+            `Expected JSON response but received: ${contentType}`
+          );
+        }
+
+        // ---------------- PARSE JSON SAFELY ----------------
+        let data: SkinAnalysisResult;
+
+        try {
+          data = JSON.parse(rawResponse) as SkinAnalysisResult;
+        } catch (parseError) {
+          console.error("JSON Parse Error:", parseError);
+
+          throw new Error(
+            `Invalid JSON response from server:\n${rawResponse.slice(0, 300)}`
+          );
+        }
+
+        // ---------------- HANDLE API ERRORS ----------------
+        if (!res.ok) {
+          const errorMessage =
+            typeof data?.message === "string"
+              ? data.message
+              : `Analysis failed (${res.status})`;
+
+          throw new Error(errorMessage);
+        }
+
+        // ---------------- SUCCESS ----------------
+        console.log("Analysis Success:", data);
+
+        await handleAnalysisSuccess(data, dataUrl);
+
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+    } catch (err: unknown) {
+      console.error("UPLOAD ANALYSIS ERROR:", err);
+
+      setUploadError(getErrorMessage(err));
+      setAnalysisFailed(true);
+
+    } finally {
+      setLoading(false);
+    }
+  }, [stopCamera, handleAnalysisSuccess, previewUrl]);
 
   // ── Drag & Drop Handlers ──────────────────────────────────────────────────
 
   const onDragOver = useCallback((e: React.DragEvent): void => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(true);
-  }, []);
+
+    if (!isDragging) {
+      setIsDragging(true);
+    }
+  }, [isDragging]);
 
   const onDragLeave = useCallback((e: React.DragEvent): void => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(false);
+
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragging(false);
+    }
   }, []);
 
   const onDrop = useCallback((e: React.DragEvent): void => {
@@ -331,13 +509,46 @@ export default function AnalysisPage(): React.JSX.Element {
     setIsDragging(false);
 
     const file = e.dataTransfer.files?.[0];
+
     if (file && file.type.startsWith("image/")) {
       void handleUpload(file);
     } else if (file) {
       setUploadError("Please upload an image file (PNG or JPEG)");
     }
-  }, []);
+  }, [handleUpload]);
 
+  //-------------- handle Reset for upload mode---------------------------------------------------
+  const handleReset = useCallback((): void => {
+    setUploadError(null);
+    setAnalysisFailed(false);
+    setLoading(false);
+    setPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    void init(); // Restart camera on reset
+  }, [init]);
+
+
+  //-------------- reset Camera----------------------------------------------
+  const handleRetake = useCallback((): void => {
+    hasCapturedRef.current = false;
+    stableCounter.current = 0;
+    setIsLocked(false);
+    setCameraError(null);
+    setAnalysisFailed(false);
+
+    if (!cameraRef.current || !streamRef.current) {
+      void init();
+    }
+  }, [init]);
+
+  // --------------- RESTART----------------------------
+  const restartCamera = useCallback(async () => {
+    if (!cameraRef.current) {
+      await init();
+    }
+  }, [init]);
+
+  // ------- Lifecycle-------------------------------------------------------
   useEffect(() => {
     let isMounted = true;
 
@@ -353,7 +564,7 @@ export default function AnalysisPage(): React.JSX.Element {
       if (document.visibilityState === "hidden") {
         stopCamera();
       } else {
-        void restartCamera();
+        restartCamera();
       }
     };
 
@@ -364,76 +575,17 @@ export default function AnalysisPage(): React.JSX.Element {
       document.removeEventListener("visibilitychange", handleVisibility);
       stopCamera();
     };
-  }, [init, restartCamera, stopCamera]);
+  }, [init, stopCamera, restartCamera]);
 
-  const resetCamera = useCallback(() => {
-    hasCapturedRef.current = false;
-    stableCounter.current = 0;
-    setIsLocked(false);
-    setCameraError(null);
-    setAnalysisFailed(false);
-    
-    // Only re-init if camera is actually dead/stopped
-    if (!cameraRef.current || !streamRef.current) {
-      void init();
-    }
-  }, [init]);
 
-  // ── Upload fallback ────────────────────────────────────────────────────────
-
-  const handleUpload = useCallback(async (file: File): Promise<void> => {
-    stopCamera(); // Prevent dual-method analysis
-    setLoading(true);
-    setUploadError(null);
-    setAnalysisFailed(false);
-
-    const objectUrl = URL.createObjectURL(file);
-    setPreviewUrl(objectUrl);
-
-    try {
-      if (file.size > 5 * 1024 * 1024) throw new Error("File size must be less than 5MB");
-
-      // Persist for shared success handler
-      const reader = new FileReader();
-      const dataUrl = await new Promise<string>((resolve) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch(
-        "https://skin-analysis-production.up.railway.app/api/skin/analyze",
-        { method: "POST", body: formData }
-      );
-
-      const data = (await res.json()) as SkinAnalysisResult;
-      if (!res.ok) throw new Error((data?.message as string) || "Analysis failed");
-
-      await handleAnalysisSuccess(data, dataUrl);
-    } catch (err: unknown) {
-      setUploadError(err instanceof Error ? err.message : String(err));
-      setAnalysisFailed(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [stopCamera, handleAnalysisSuccess]);
-
-  const handleReset = useCallback((): void => {
-    setUploadError(null);
-    setAnalysisFailed(false);
-    setLoading(false);
-    setPreviewUrl(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    void init(); // Restart camera on reset
-  }, [init]);
-
+  //----------------cleanup------------------------------
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+
+  const showCameraOverlay = !cameraError && !analysisFailed;
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -453,108 +605,86 @@ export default function AnalysisPage(): React.JSX.Element {
         </p>
       </div>
 
-      <div className="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-12 gap-lg items-center">
+      <div className="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-12 gap-lg items-stretch">
         {/* LEFT SIDE: Camera */}
         <div className="lg:col-span-7 flex flex-col items-center">
-          <div className="relative w-full aspect-4/3 bg-black rounded-[2rem] overflow-hidden shadow-2xl group">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            <canvas ref={overlayCanvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+          <div className="relative w-full aspect-3/4 md:aspect-4/2 bg-black rounded-[2rem] overflow-hidden">
+            {showCameraOverlay && (
+              <>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+                <canvas
+                  ref={overlayCanvasRef}
+                  className="absolute inset-0 w-full h-full"
+                />
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className={`guide-oval w-64 h-80 border-2 border-white/30 rounded-full ${isLocked ? "border-green-400" : "border-red-500"}`} />
+                </div>
+              </>
+            )}
+            {(!ready || cameraError) && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white">
+                {cameraError && analysisFailed && (
 
-            {/* Scanning Line Animation */}
-            {(loading || isLocked) && <div className="scanning-line absolute w-full z-10" style={{ animation: "scan 3s linear infinite" }} />}
+                  <div className="text-center">
+                    <p className="text-red-400 font-bold mb-2">Capture Failed</p>
+                    <p className="text-sm text-white/70">{cameraError}</p>
+                    <div className="mt-lg flex flex-col justify-center items-center gap-md ">
 
-            {/* Guide Overlay */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className={`w-64 h-80 border-2 border-dashed rounded-full transition-all duration-700 ${isLocked ? "border-emerald-400 scale-105 bg-emerald-400/5 shadow-[0_0_30px_rgba(74,222,128,0.2)]" : "border-white/20"
-                }`} />
-            </div>
+                      {/* Only show retake button when capture/analysis failed */}
+                      {analysisFailed ? (
+                        <Button
+                          onClick={handleRetake}
+                          className="w-full py-lg"
+                          variant="default"
+                        >
+                          Retake Photo
+                        </Button>
+                      ) : (
+                        <Button disabled className="py-lg text-white">
+                          {loading ? "Analyzing…" : "Auto Capturing…"}
+                        </Button>
+                      )}
 
-            {/* Floating Status Badge */}
-            <div className="absolute top-6 left-6 z-20 flex items-center gap-3">
-              <div className={`px-4 py-2 rounded-full backdrop-blur-md border flex items-center gap-2 transition-all duration-500 ${loading ? "bg-amber-500/20 border-amber-500/30 text-amber-300" :
-                isLocked ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-300" :
-                  "bg-black/40 border-white/10 text-white/70"
-                }`}>
-                {loading ? (
-                  <>
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Analyzing</span>
-                  </>
-                ) : isLocked ? (
-                  <>
-                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Capturing</span>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-2 h-2 rounded-full bg-white/40" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Auto Capture Ready</span>
-                  </>
+
+                      <div className="mt-md text-center">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/40">
+                          Face detection active • Please keep still
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                 )}
               </div>
-            </div>
-
-            {/* Floating Reset Button */}
-            <button
-              onClick={resetCamera}
-              className="absolute top-6 right-6 z-20 p-3 rounded-full bg-black/40 border border-white/10 text-white/50 hover:text-white hover:bg-black/60 transition-all opacity-0 group-hover:opacity-100"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
-            </button>
-
-            {/* Status Overlay */}
-            {!ready && !cameraError && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 text-white gap-md">
-                <Loader2 className="w-10 h-10 animate-spin text-primary" />
-                <p className="font-medium animate-pulse tracking-widest text-[10px] uppercase">Initializing AI Scan...</p>
-              </div>
             )}
-
-            {cameraError && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-center p-lg z-30">
-                <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mb-md border border-rose-500/20">
-                  <span className="text-2xl text-rose-500 font-black">⚠️</span>
-                </div>
-                <p className="text-on-surface font-black uppercase tracking-widest text-xs mb-1">Scan Error</p>
-                <p className="text-sm text-white/80 mb-lg max-w-xs leading-relaxed">{cameraError}</p>
-                <Button onClick={resetCamera} variant="secondary" className="rounded-full px-8 font-bold uppercase tracking-widest text-[10px]">
-                  Retry Scan
-                </Button>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-md text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/40">
-              Face detection active • Please keep still
-            </p>
           </div>
         </div>
-
         {/* RIGHT SIDE */}
-        <div className="lg:col-span-5 flex flex-col items-center">
+        <div className="lg:col-span-5 flex flex-col">
           <div
             onDragOver={onDragOver}
             onDragLeave={onDragLeave}
             onDrop={onDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`relative w-full aspect-3/4 md:aspect-4/2 rounded-[2rem] border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center gap-md overflow-hidden ${isDragging
+            className={`relative w-full grow rounded-[2rem] border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center gap-md overflow-hidden ${isDragging
               ? "border-primary bg-primary/5 scale-[1.02]"
               : "border-slate-200 dark:border-slate-800 bg-surface-container hover:border-primary/50"
               }`}
           >
             {previewUrl ? (
               <>
-                <img
+                <Image
                   src={previewUrl}
                   alt="Preview"
-                  className="absolute inset-0 w-full h-full object-contain opacity-40"
+                  fill
+                  unoptimized
+                  className="object-contain opacity-40"
                 />
                 <div className="relative z-10 flex flex-col items-center text-center p-lg">
                   {loading ? (

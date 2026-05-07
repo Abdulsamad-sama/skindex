@@ -2,6 +2,9 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
+import { motion } from "framer-motion";
 
 // ─── API Response Types ───────────────────────────────────────────────────────
 
@@ -96,81 +99,9 @@ type RawSkinAnalysis = {
 
 // ─── Normalisation helpers ────────────────────────────────────────────────────
 
-type SkinMetric = { label: string; value: number };
 type ExtraField = { key: string; value: string };
 
-function toNumber(v: unknown): number | null {
-  if (v === null || v === undefined) return null;
-  const n = parseFloat(String(v));
-  return isNaN(n) ? null : n;
-}
 
-const METRIC_KEYS: Array<{ keys: string[]; label: string; higherIsBetter: boolean }> = [
-  { keys: ["hydration", "moisture"], label: "Hydration / Moisture", higherIsBetter: true },
-  { keys: ["elasticity", "firmness"], label: "Elasticity", higherIsBetter: true },
-  { keys: ["luminosity", "radiance", "brightness"], label: "Luminosity", higherIsBetter: true },
-  { keys: ["sensitivity"], label: "Sensitivity", higherIsBetter: false },
-  { keys: ["uv_damage", "uv"], label: "UV Damage", higherIsBetter: false },
-  { keys: ["oiliness", "sebum"], label: "Oiliness", higherIsBetter: false },
-  { keys: ["acne", "blemishes"], label: "Acne / Blemishes", higherIsBetter: false },
-  { keys: ["pores", "pore"], label: "Pores", higherIsBetter: false },
-  { keys: ["texture", "smoothness"], label: "Texture / Smoothness", higherIsBetter: false },  // ← changed to false
-  { keys: ["wrinkles", "fine_lines"], label: "Wrinkles", higherIsBetter: false },
-  { keys: ["redness", "erythema"], label: "Redness", higherIsBetter: false },
-  { keys: ["dark_spots", "hyperpigmentation_score", "age_spot"], label: "Dark Spots / Age Spots", higherIsBetter: false },
-];
-
-function extractScore(raw: RawSkinAnalysis): number | null {
-  return toNumber(raw.health_score) ?? toNumber(raw.overall_score) ?? toNumber(raw.score) ?? null;
-}
-
-function extractMetrics(raw: RawSkinAnalysis): SkinMetric[] {
-  const found: SkinMetric[] = [];
-  const nested: Record<string, unknown> | null =
-    (raw.metrics as Record<string, unknown> | undefined) ??
-    (raw.skin_metrics as Record<string, unknown> | undefined) ??
-    null;
-
-  // 1. Known metrics from top-level and nested
-  for (const { keys, label } of METRIC_KEYS) {
-    let value: number | null = null;
-    for (const k of keys) {
-      const flat = toNumber(raw[k] as number | string | undefined);
-      if (flat !== null) { value = flat; break; }
-      if (nested) {
-        const nest = toNumber(nested[k] as number | string | undefined);
-        if (nest !== null) { value = nest; break; }
-      }
-    }
-    if (value !== null) found.push({ label, value });
-  }
-
-  // 2. Fallback: unknown fields in nested object
-  if (found.length === 0 && nested) {
-    for (const [k, v] of Object.entries(nested)) {
-      const n = toNumber(v as number | string | undefined);
-      if (n !== null) found.push({ label: k.replace(/_/g, " "), value: n });
-    }
-  }
-
-  // 3. NEW: extract from skin_concerns (your API response format)
-  const concernsObj = raw.skin_concerns as Record<string, { ui_score?: number; raw_score?: number }> | undefined;
-  if (concernsObj) {
-    for (const [key, entry] of Object.entries(concernsObj)) {
-      if (!entry || typeof entry !== "object") continue;
-      const score = entry.ui_score ?? entry.raw_score;
-      if (typeof score !== "number") continue;
-
-      const existing = METRIC_KEYS.find((mk) => mk.keys.includes(key.toLowerCase()));
-      const label = existing?.label ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-      if (found.some((m) => m.label.toLowerCase() === label.toLowerCase())) continue;
-
-      found.push({ label, value: Math.round(score) });
-    }
-  }
-
-  return found;
-}
 
 function normaliseConcern(raw: SkinConcern | string): SkinConcern {
   return typeof raw === "string" ? { name: raw } : raw;
@@ -249,12 +180,12 @@ function ScoreRing({ score }: ScoreRingProps): React.JSX.Element {
   const r = 54;
   const circ = 2 * Math.PI * r;
   const offset = circ * (1 - score / 100);
-  const colour = score >= 75 ? "#006a64" : score >= 50 ? "#facc15" : "#f87171";
+  const colour = score >= 75 ? "#4ade80" : score >= 50 ? "#facc15" : "#f87171";
 
   return (
     <div className="relative w-36 h-36 flex items-center justify-center">
       <svg className="absolute inset-0 -rotate-90" width="144" height="144">
-        <circle cx="72" cy="72" r={r} fill="none" stroke="currentColor" className="text-slate-200 dark:text-white/10" strokeWidth="10" />
+        <circle cx="72" cy="72" r={r} fill="none" stroke="currentColor" strokeWidth="10" className="text-on-surface/10" />
         <circle cx="72" cy="72" r={r} fill="none" stroke={colour} strokeWidth="10"
           strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
           style={{ transition: "stroke-dashoffset 1s ease" }} />
@@ -267,26 +198,6 @@ function ScoreRing({ score }: ScoreRingProps): React.JSX.Element {
   );
 }
 
-type MetricBarProps = { metric: SkinMetric; higherIsBetter: boolean };
-
-function MetricBar({ metric, higherIsBetter }: MetricBarProps): React.JSX.Element {
-  const pct = Math.min(100, Math.max(0, metric.value));
-  const barColour = higherIsBetter
-    ? pct >= 70 ? "bg-primary" : pct >= 40 ? "bg-amber-400" : "bg-rose-400"
-    : pct <= 30 ? "bg-primary" : pct <= 60 ? "bg-amber-400" : "bg-rose-400";
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex justify-between items-baseline">
-        <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/70">{metric.label}</p>
-        <p className="text-lg font-black text-on-surface">{Math.round(pct)}%</p>
-      </div>
-      <div className="w-full h-1.5 rounded-full bg-surface-container overflow-hidden">
-        <div className={`${barColour} h-full rounded-full transition-all duration-1000`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
 
 const SEVERITY_STYLE: Record<string, string> = {
   high: "border-rose-500/40 bg-rose-500/10 text-rose-300",
@@ -298,8 +209,8 @@ const SEVERITY_STYLE: Record<string, string> = {
 };
 
 function severityStyle(s: string | undefined): string {
-  if (!s) return "border-slate-200 dark:border-white/10 bg-surface-container-low text-on-surface-variant";
-  return SEVERITY_STYLE[s.toLowerCase()] ?? "border-slate-200 dark:border-white/10 bg-surface-container-low text-on-surface-variant";
+  if (!s) return "border-outline-variant bg-surface-container text-on-surface-variant";
+  return SEVERITY_STYLE[s.toLowerCase()] ?? "border-outline-variant bg-surface-container text-on-surface-variant";
 }
 
 type ConcernCardProps = { concern: SkinConcern; index: number };
@@ -307,37 +218,42 @@ type ConcernCardProps = { concern: SkinConcern; index: number };
 function ConcernCard({ concern, index }: ConcernCardProps): React.JSX.Element {
   const ICONS = ["⚡", "💧", "🔬", "☀️", "🌿", "🔴", "💨"];
   return (
-    <div className={`flex gap-4 p-4 rounded-2xl border transition-all duration-300 hover:shadow-md ${severityStyle(concern.severity)}`}>
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05 }}
+      className={`flex gap-4 p-4 rounded-2xl border ${severityStyle(concern.severity)}`}
+    >
       <div className="text-2xl mt-0.5 shrink-0">{ICONS[index % ICONS.length]}</div>
       <div className="flex-1 min-w-0">
         <div className="flex flex-wrap gap-2 items-center mb-1">
-          <h4 className="font-bold text-sm capitalize">{concern.name.replace(/_/g, " ")}</h4>
+          <h4 className="font-bold text-sm capitalize text-on-surface">{concern.name.replace(/_/g, " ")}</h4>
           {concern.severity && (
             <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-current opacity-70">
               {concern.severity}
             </span>
           )}
           {concern.priority && (
-            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-300 border border-rose-500/30">
+            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
               Priority
             </span>
           )}
         </div>
         {concern.description && <p className="text-xs text-on-surface-variant leading-relaxed">{concern.description}</p>}
-        {concern.location && <p className="text-xs text-on-surface-variant/60 mt-1">📍 {concern.location}</p>}
-        {concern.intensity !== undefined && <p className="text-xs text-on-surface-variant/60 mt-1">Intensity: {concern.intensity}</p>}
+        {concern.location && <p className="text-xs text-on-surface-variant/70 mt-1">📍 {concern.location}</p>}
+        {concern.intensity !== undefined && <p className="text-xs text-on-surface-variant/70 mt-1">Intensity: {concern.intensity}</p>}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
 const REC_GRADIENTS = [
-  "from-violet-600/30 to-indigo-600/30",
-  "from-teal-600/30 to-cyan-600/30",
-  "from-amber-600/30 to-orange-600/30",
-  "from-rose-600/30 to-pink-600/30",
-  "from-emerald-600/30 to-green-600/30",
-  "from-sky-600/30 to-blue-600/30",
+  "from-violet-500/20 to-indigo-500/20",
+  "from-teal-500/20 to-cyan-500/20",
+  "from-amber-500/20 to-orange-500/20",
+  "from-rose-500/20 to-pink-500/20",
+  "from-emerald-500/20 to-green-500/20",
+  "from-sky-500/20 to-blue-500/20",
 ];
 
 type RecCardProps = { rec: SkinRecommendation; index: number };
@@ -347,11 +263,53 @@ function RecCard({ rec, index }: RecCardProps): React.JSX.Element {
   const subtitle = rec.ingredient ?? rec.category ?? rec.type ?? "";
   const body = rec.reason ?? rec.description ?? "";
   return (
-    <div className={`rounded-2xl border border-slate-200 dark:border-white/10 bg-linear-to-br ${REC_GRADIENTS[index % REC_GRADIENTS.length]} p-5 flex flex-col gap-2 hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5`}>
-      {subtitle && <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60">{subtitle}</span>}
+    <div className={`rounded-2xl border border-outline-variant bg-linear-to-br ${REC_GRADIENTS[index % REC_GRADIENTS.length]} p-5 flex flex-col gap-2 hover:border-primary transition-all duration-300`}>
+      {subtitle && <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">{subtitle}</span>}
       <h4 className="font-bold text-on-surface text-sm leading-tight">{title}</h4>
       {body && <p className="text-xs text-on-surface-variant leading-relaxed">{body}</p>}
     </div>
+  );
+}
+
+function getProductImage(name: string): string | null {
+  const n = name.toLowerCase();
+  if (n.includes("cerave") || n.includes("hydrating") || n.includes("cleanser")) return "/cerave-hydrating.webp";
+  if (n.includes("neutrogena") || n.includes("oil-free") || n.includes("moisturizer")) return "/NTG_EMEA_oil_free.webp";
+  if (n.includes("elta") || n.includes("sunscreen") || n.includes("uv")) return "/uv-elta.webp";
+  if (n.includes("mascara") || n.includes("maybelline")) return "/maybelline-lash-sensational-waterproof-mascara_grande-1.webp";
+  return null;
+}
+
+function ProductCard({ item, icon = "🛍️" }: { item: RoutineItem; icon?: string }): React.JSX.Element {
+  const img = getProductImage(item.name);
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      whileInView={{ opacity: 1, scale: 1 }}
+      viewport={{ once: true }}
+      className="p-4 rounded-2xl border border-outline-variant bg-surface-container-low hover:bg-surface-container transition-all duration-200 flex gap-4"
+    >
+      {img && (
+        <div className="relative w-20 h-20 shrink-0 rounded-xl overflow-hidden bg-surface border border-outline-variant">
+          <Image src={img} alt={item.name} fill sizes="80px" unoptimized className="object-contain p-2 rounded-lg" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between items-start mb-2">
+          <h4 className="font-bold text-sm text-on-surface leading-tight" title={item.name}>{item.name}</h4>
+          <span className="text-lg">{icon}</span>
+        </div>
+        <p className="text-xs text-on-surface-variant mb-4 line-clamp-2">{item.reason}</p>
+        <a
+          href={item.amazon_url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[10px] font-black text-primary uppercase tracking-widest hover:underline"
+        >
+          View on Amazon ↗
+        </a>
+      </div>
+    </motion.div>
   );
 }
 
@@ -361,14 +319,14 @@ function ExtrasTable({ extras }: ExtrasProps): React.JSX.Element | null {
   if (extras.length === 0) return null;
   return (
     <div className="mt-8">
-      <h3 className="text-xs font-black uppercase tracking-widest text-on-surface-variant/40 mb-3">Additional Data</h3>
-      <div className="rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
+      <h3 className="text-xs font-black uppercase tracking-widest text-on-surface-variant mb-3">Additional Data</h3>
+      <div className="rounded-2xl border border-outline-variant overflow-hidden divide-y divide-outline-variant bg-surface-container-low">
         {extras.map(({ key, value }) => (
-          <div key={key} className="flex gap-4 px-4 py-2.5 hover:bg-surface-container transition-colors">
-            <span className="text-xs font-bold text-on-surface-variant/50 uppercase tracking-wide min-w-35 shrink-0">
+          <div key={key} className="flex gap-4 px-4 py-2.5">
+            <span className="text-xs font-bold text-on-surface/50 uppercase tracking-wide min-w-35 shrink-0">
               {key.replace(/_/g, " ")}
             </span>
-            <span className="text-xs text-on-surface-variant font-mono break-all">{value}</span>
+            <span className="text-xs text-on-surface font-mono break-all">{value}</span>
           </div>
         ))}
       </div>
@@ -393,7 +351,7 @@ function EmptyState({ onRetake }: EmptyStateProps): React.JSX.Element {
         </p>
         <button
           onClick={onRetake}
-          className="px-8 py-3 bg-primary text-on-primary font-bold rounded-full hover:opacity-90 transition-all shadow-lg"
+          className="px-8 py-3 bg-primary text-on-primary font-bold rounded-full hover:brightness-110 transition-colors"
         >
           Start a Scan
         </button>
@@ -411,14 +369,16 @@ export default function DashboardPage(): React.JSX.Element {
   const [showRaw, setShowRaw] = useState<boolean>(false);
 
   useEffect((): void => {
-    const stored = sessionStorage.getItem("skinAnalysisResult");
-    if (stored) {
-      try { setRaw(JSON.parse(stored) as RawSkinAnalysis); } catch { /* ignore */ }
-    }
-    const routineStored = sessionStorage.getItem("skinRoutineData");
-    if (routineStored) {
-      try { setRoutine(JSON.parse(routineStored) as RoutineData); } catch { /* ignore */ }
-    }
+    void Promise.resolve().then(() => {
+      const stored = sessionStorage.getItem("skinAnalysisResult");
+      if (stored) {
+        try { setRaw(JSON.parse(stored) as RawSkinAnalysis); } catch { /* ignore */ }
+      }
+      const routineStored = sessionStorage.getItem("skinRoutineData");
+      if (routineStored) {
+        try { setRoutine(JSON.parse(routineStored) as RoutineData); } catch { /* ignore */ }
+      }
+    });
   }, []);
 
   const handleRetake = (): void => {
@@ -427,149 +387,198 @@ export default function DashboardPage(): React.JSX.Element {
     router.push("/analysis");
   };
 
-  if (!raw) {
+  const displayRaw: RawSkinAnalysis | null = raw;
+
+  if (!displayRaw) {
     return <EmptyState onRetake={handleRetake} />;
   }
 
-  const score = routine?.overall_score ?? null;
-  const metrics = extractMetrics(raw);
-  const concerns = extractConcerns(raw);
-  const recommendations = extractRecommendations(raw);
-  const extras = extractExtras(raw);
+  const score = routine?.overall_score ?? (typeof displayRaw.overall_score === 'number' ? displayRaw.overall_score : null);
+  const concerns = extractConcerns(displayRaw);
+  const recommendations = extractRecommendations(displayRaw);
+  const extras = extractExtras(displayRaw);
 
-  const skinType = raw.skin_type ?? raw.skin_tone ?? null;
-  const ageEst = raw.age_estimate ?? raw.estimated_age ?? raw.skin_age ?? null;
+  const skinType = displayRaw.skin_type ?? displayRaw.skin_tone ?? null;
+  const ageEst = displayRaw.age_estimate ?? displayRaw.estimated_age ?? displayRaw.skin_age ?? null;
 
   const now = new Date();
   const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const dateStr = now.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 
   return (
-    <main className="min-h-screen bg-background text-on-surface pt-24 pb-20 px-4 md:px-8">
-      <div className="max-w-6xl mx-auto">
-        <header className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
-          <div>
-            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-on-surface-variant/40 block mb-2">
-              Clinical Dashboard
-            </span>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-none text-on-surface">
-              Analysis{" "}
-              <span className="text-transparent bg-clip-text bg-linear-to-r from-primary to-cyan-500">
-                Results
+    <div className="flex-1 min-h-screen bg-background">
+      <main className="text-on-surface pt-24 pb-20 px-4 md:px-8">
+        <div className="max-w-6xl mx-auto">
+
+          {/* ── Header ─────────────────────────────────────────────────────── */}
+          <header className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-[0.25em] text-on-surface-variant block mb-2">
+                Clinical Dashboard
               </span>
-            </h1>
-            <p className="text-sm text-on-surface-variant/60 mt-3">
-              Scan completed {dateStr} at {timeStr}
-            </p>
-          </div>
+              <h1 className="text-3xl font-black tracking-tight text-on-surface">
+                Analysis Results
+              </h1>
+              <p className="text-sm text-on-surface-variant mt-1">
+                Completed {dateStr} at {timeStr}
+              </p>
+            </div>
 
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={handleRetake}
-              className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-bold text-on-surface-variant hover:border-primary hover:text-primary transition-all duration-200"
-            >
-              ↩ Redo Scan
-            </button>
-            <button
-              onClick={() => setShowRaw((p) => !p)}
-              className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-bold text-on-surface-variant/70 hover:border-primary hover:text-primary transition-all duration-200"
-            >
-              {showRaw ? "Hide" : "View"} Raw JSON
-            </button>
-          </div>
-        </header>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleRetake}
+                className="px-5 py-2.5 rounded-xl border border-outline-variant text-sm font-bold text-on-surface hover:bg-surface-container transition-all"
+              >
+                New Analysis
+              </button>
+              <button
+                onClick={(): void => setShowRaw((p) => !p)}
+                className="px-5 py-2.5 rounded-xl border border-outline-variant text-sm font-bold text-on-surface-variant hover:bg-surface-container transition-all"
+              >
+                {showRaw ? "Hide" : "View"} Raw JSON
+              </button>
+            </div>
+          </header>
 
-        {showRaw && (
-          <div className="mb-8 rounded-2xl border border-slate-200 dark:border-white/10 bg-surface-container-low overflow-auto p-5 max-h-96 shadow-inner">
-            <pre className="text-xs font-mono text-primary whitespace-pre-wrap">
-              {JSON.stringify(raw, null, 2)}
-            </pre>
-          </div>
-        )}
+          {/* ── Raw JSON toggle ─────────────────────────────────────────────── */}
+          {showRaw && (
+            <div className="mb-8 rounded-2xl border border-white/10 bg-white/5 overflow-auto p-5 max-h-96">
+              <pre className="text-xs font-mono text-emerald-400 whitespace-pre-wrap">
+                {JSON.stringify(displayRaw, null, 2)}
+              </pre>
+            </div>
+          )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* LEFT: Score + Metrics */}
-          <div className="lg:col-span-4 flex flex-col gap-5">
-            <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-surface-container-lowest p-7 flex flex-col items-center gap-4 shadow-sm">
-              <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/40">Health Score</span>
-              {score !== null ? (
-                <ScoreRing score={score} />
-              ) : (
-                <div className="text-5xl font-black text-on-surface-variant/20">—</div>
-              )}
-              {skinType && (
-                <div className="px-4 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-bold uppercase tracking-wider">
-                  {String(skinType)} Skin
+          {/* ── Main grid ───────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+            {/* LEFT: Score + Concerns */}
+            <div className="lg:col-span-4 flex flex-col gap-5">
+              <div className="rounded-3xl border border-outline-variant bg-surface-container-low p-7 flex flex-col items-center gap-4">
+                <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Health Score</span>
+                {score !== null ? (
+                  <ScoreRing score={score} />
+                ) : (
+                  <div className="text-5xl font-black text-on-surface/20">—</div>
+                )}
+                {skinType && (
+                  <div className="px-4 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-bold uppercase tracking-wider">
+                    {String(skinType)} Skin
+                  </div>
+                )}
+                {ageEst && (
+                  <p className="text-xs text-on-surface-variant">
+                    Estimated skin age: <span className="text-on-surface font-bold">{String(ageEst)}</span>
+                  </p>
+                )}
+              </div>
+
+              {concerns.length > 0 && (
+                <div className="rounded-3xl border border-outline-variant bg-surface-container-low p-6">
+                  <div className="flex items-center gap-2 mb-5">
+                    <span className="text-base">⚠️</span>
+                    <h2 className="text-sm font-black uppercase tracking-widest text-on-surface-variant">Detected Concerns</h2>
+                    <span className="ml-auto px-2.5 py-0.5 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant">
+                      {concerns.length}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {concerns.map((c, i) => (
+                      <ConcernCard key={`${c.name}-${i}`} concern={c} index={i} />
+                    ))}
+                  </div>
                 </div>
-              )}
-              {ageEst && (
-                <p className="text-xs text-on-surface-variant/60">
-                  Estimated skin age: <span className="text-on-surface font-bold">{String(ageEst)}</span>
-                </p>
               )}
             </div>
 
-            {metrics.length > 0 && (
-              <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-surface-container-lowest p-6 flex flex-col gap-4 shadow-sm">
-                <h3 className="text-xs font-black uppercase tracking-widest text-on-surface-variant/40 mb-1">Skin Metrics</h3>
-                {metrics.map((m) => {
-                  const meta = METRIC_KEYS.find((mk) => mk.label.toLowerCase() === m.label.toLowerCase());
-                  return <MetricBar key={m.label} metric={m} higherIsBetter={meta?.higherIsBetter ?? true} />;
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* RIGHT: Concerns + Recommendations */}
-          <div className="lg:col-span-8 flex flex-col gap-5">
-            {concerns.length > 0 && (
-              <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-surface-container-lowest p-6 shadow-sm">
-                <div className="flex items-center gap-2 mb-5">
-                  <span className="text-base">⚠️</span>
-                  <h2 className="text-sm font-black uppercase tracking-widest text-on-surface-variant/50">Detected Concerns</h2>
-                  <span className="ml-auto px-2.5 py-0.5 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant">
-                    {concerns.length}
-                  </span>
+            {/* RIGHT: Recommendations */}
+            <div className="lg:col-span-8 flex flex-col gap-5">
+              {routine?.skincare_routine && routine.skincare_routine.length > 0 && (
+                <div className="rounded-3xl border border-outline-variant bg-surface-container-low p-6">
+                  <div className="flex items-center gap-2 mb-5">
+                    <span className="text-base">✨</span>
+                    <h2 className="text-sm font-black uppercase tracking-widest text-on-surface-variant">Recommended Products</h2>
+                    <span className="ml-auto px-2.5 py-0.5 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant">
+                      {routine.skincare_routine.length}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-4">
+                    {routine.skincare_routine.slice(0, 4).map((item, i) => (
+                      <ProductCard key={i} item={item} />
+                    ))}
+                  </div>
+                  {routine.skincare_routine.length && (
+                    <div className="flex justify-center mt-6">
+                      <Link
+                        href="/weather"
+                        className="px-6 py-2 rounded-full border border-outline-variant text-[10px] font-black uppercase tracking-widest text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-all"
+                      >
+                        See More Results
+                      </Link>
+                    </div>
+                  )}
                 </div>
-                <div className="flex flex-col gap-3">
-                  {concerns.map((c, i) => (
-                    <ConcernCard key={`${c.name}-${i}`} concern={c} index={i} />
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
 
-            {recommendations.length > 0 && (
-              <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-surface-container-lowest p-6 shadow-sm">
-                <div className="flex items-center gap-2 mb-5">
-                  <span className="text-base">✦</span>
-                  <h2 className="text-sm font-black uppercase tracking-widest text-on-surface-variant/50">Precision Formulations</h2>
-                  <span className="ml-auto px-2.5 py-0.5 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant">
-                    {recommendations.length}
-                  </span>
+              {routine?.outfit_suggestions && routine.outfit_suggestions.length > 0 && (
+                <div className="rounded-3xl border border-outline-variant bg-surface-container-low p-6">
+                  <div className="flex items-center gap-2 mb-5">
+                    <span className="text-base">👕</span>
+                    <h2 className="text-sm font-black uppercase tracking-widest text-on-surface-variant">Recommended Outfit</h2>
+                    <span className="ml-auto px-2.5 py-0.5 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant">
+                      {routine.outfit_suggestions.length}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-4">
+                    {routine.outfit_suggestions.slice(0, 4).map((item, i) => (
+                      <ProductCard key={i} item={item} icon="👕" />
+                    ))}
+                  </div>
+                  {routine.outfit_suggestions.length > 4 && (
+                    <div className="flex justify-center mt-6">
+                      <Link
+                        href="/weather"
+                        className="px-6 py-2 rounded-full border border-outline-variant text-[10px] font-black uppercase tracking-widest text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-all"
+                      >
+                        See More Results
+                      </Link>
+                    </div>
+                  )}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {recommendations.map((r, i) => (
-                    <RecCard key={i} rec={r} index={i} />
-                  ))}
+              )}
+
+              {recommendations.length > 0 && (
+                <div className="rounded-3xl border border-outline-variant bg-surface-container-low p-6">
+                  <div className="flex items-center gap-2 mb-5">
+                    <span className="text-base">✦</span>
+                    <h2 className="text-sm font-black uppercase tracking-widest text-on-surface-variant">Precision Formulations</h2>
+                    <span className="ml-auto px-2.5 py-0.5 rounded-full bg-surface-container text-xs font-bold text-on-surface-variant">
+                      {recommendations.length}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {recommendations.map((r, i) => (
+                      <RecCard key={i} rec={r} index={i} />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {concerns.length === 0 && recommendations.length === 0 && metrics.length === 0 && (
-              <div className="rounded-3xl border border-slate-200 dark:border-white/10 bg-surface-container-lowest p-8 flex flex-col items-center text-center gap-3 shadow-sm">
-                <span className="text-4xl">✅</span>
-                <h3 className="font-bold text-on-surface">Your skin looks great!</h3>
-                <p className="text-sm text-on-surface-variant/60">
-                  No specific concerns detected. Keep up your current routine.
-                </p>
-              </div>
-            )}
+              {concerns.length === 0 && recommendations.length === 0 && (!routine?.skincare_routine || routine.skincare_routine.length === 0) && (!routine?.outfit_suggestions || routine.outfit_suggestions.length === 0) && (
+                <div className="rounded-3xl border border-outline-variant bg-surface-container-low p-8 flex flex-col items-center text-center gap-3">
+                  <span className="text-4xl">✅</span>
+                  <h3 className="font-bold text-on-surface">Your skin looks great!</h3>
+                  <p className="text-sm text-on-surface-variant">
+                    No specific concerns detected. Keep up your current routine.
+                  </p>
+                </div>
+              )}
 
-            <ExtrasTable extras={extras} />
+              <ExtrasTable extras={extras} />
+            </div>
           </div>
         </div>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

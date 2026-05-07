@@ -1,8 +1,9 @@
 "use client";
 
 import { LocateFixedIcon, LocateIcon, Plus, Smile, Sun } from "lucide-react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { MdCheckroom, MdOpacity } from "react-icons/md";
+import Image from "next/image";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -299,6 +300,15 @@ type RoutineData = {
   outfit_suggestions: RoutineItem[];
 };
 
+function getProductImage(name: string): string | null {
+  const n = name.toLowerCase();
+  if (n.includes("cerave") || n.includes("hydrating") || n.includes("cleanser")) return "/cerave-hydrating.webp";
+  if (n.includes("neutrogena") || n.includes("oil-free") || n.includes("moisturizer")) return "/NTG_EMEA_oil_free.webp";
+  if (n.includes("elta") || n.includes("sunscreen") || n.includes("uv")) return "/uv-elta.webp";
+  if (n.includes("mascara") || n.includes("maybelline")) return "/maybelline-lash-sensational-waterproof-mascara_grande-1.webp";
+  return null;
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 type PageState =
@@ -312,7 +322,6 @@ export default function WeatherPage(): React.JSX.Element {
   const [pageState, setPageState] = useState<PageState>({ status: "locating" });
   const [routine, setRoutine] = useState<RoutineData | null>(null);
   const [routineLoading, setRoutineLoading] = useState<boolean>(false);
-  const coordsRef = useRef<{ lat: number; lon: number } | null>(null);
 
   // ── Fetch weather + routine ──────────────────────────────────────────────
 
@@ -368,14 +377,15 @@ export default function WeatherPage(): React.JSX.Element {
 
   useEffect((): void => {
     if (!navigator.geolocation) {
-      setPageState({ status: "no-location" });
+      void Promise.resolve().then(() => {
+        setPageState({ status: "no-location" });
+      });
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (pos: GeolocationPosition): void => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
-        coordsRef.current = { lat, lon };
         void fetchAll(lat, lon);
       },
       (): void => {
@@ -555,15 +565,15 @@ export default function WeatherPage(): React.JSX.Element {
                   <div className="p-3 bg-secondary-fixed rounded-lg shrink-0">
                     <span className="material-symbols-outlined text-on-secondary-fixed text" data-icon="checkroom"><MdCheckroom /></span>
                   </div>
-                    <p className="font-h3 text-h3 mb-2">Outfit Guide:</p>
-                    <p className="font-body-md text-body-md text-on-surface-variant">{d.clothingTip}</p>
+                  <p className="font-h3 text-h3 mb-2">Outfit Guide:</p>
+                  <p className="font-body-md text-body-md text-on-surface-variant">{d.clothingTip}</p>
                 </div>
                 {!routineLoading && !routine?.outfit_suggestions && (
                   <p className="text-sm text-on-surface-variant italic py-4">
                     Complete a skin scan on the Analysis page to see your outfit suggestions.
                   </p>
                 )}
-              
+
                 {routine && routine.outfit_suggestions.length > 0 && (
                   <div className="glass p-md rounded-xl border border-slate-200 dark:border-slate-800">
                     <span className="font-label-caps text-label-caps text-on-surface-variant block mb-base">APPAREL STRATEGY</span>
@@ -585,7 +595,7 @@ export default function WeatherPage(): React.JSX.Element {
                     </div>
                   </div>
                 )}
-                
+
               </div>
 
               {/* Humidity alert */}
@@ -635,33 +645,43 @@ export default function WeatherPage(): React.JSX.Element {
 
                 {routine && routine.skincare_routine.length > 0 && (
                   <div className="space-y-md">
-                    {routine.skincare_routine.map((item: RoutineItem, i: number) => (
-                      <div
-                        key={i}
-                        className="p-base rounded-lg border border-slate-100 dark:border-slate-800 hover:bg-surface-container-low transition-colors"
-                      >
-                        <p className="font-bold text-sm text-on-surface mb-1">{item.name}</p>
-                        <p className="text-xs text-on-surface-variant mb-2">{item.reason}</p>
-                        <a
-                          href={item.amazon_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-[10px] font-black text-primary uppercase tracking-wider hover:underline"
+                    {routine.skincare_routine.map((item: RoutineItem, i: number) => {
+                      const img = getProductImage(item.name);
+                      return (
+                        <div
+                          key={i}
+                          className="p-base rounded-lg border border-slate-100 dark:border-slate-800 hover:bg-surface-container-low transition-colors flex gap-base"
                         >
-                          <LocateIcon size={10} /> Buy on Amazon
-                        </a>
-                      </div>
-                    ))}
+                          {img && (
+                            <div className="relative w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-white/5 border border-slate-200 dark:border-slate-800">
+                              <Image src={img} alt={item.name} fill sizes="64px" unoptimized className="object-contain p-1" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-sm text-on-surface mb-1 truncate" title={item.name}>{item.name}</p>
+                            <p className="text-xs text-on-surface-variant mb-2 line-clamp-2">{item.reason}</p>
+                            <a
+                              href={item.amazon_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-[10px] font-black text-primary uppercase tracking-wider hover:underline"
+                            >
+                              <LocateIcon size={10} /> Buy on Amazon
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </div>
 
-           
+
             {/* Coords indicator */}
-            {coordsRef.current && (
+            {(pageState.status === "ok" || pageState.status === "fetching") && (
               <p className="font-body-md text-xs text-on-surface-variant">
-                Lat {coordsRef.current.lat.toFixed(3)}, Long {coordsRef.current.lon.toFixed(3)} — live sync active.
+                Lat {pageState.lat.toFixed(3)}, Long {pageState.lon.toFixed(3)} — live sync active.
               </p>
             )}
           </aside>
