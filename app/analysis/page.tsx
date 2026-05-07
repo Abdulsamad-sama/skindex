@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 
 import { Upload, Loader2, Check } from "lucide-react";
 import Image from "next/image";
+import { div } from "framer-motion/client";
 
 //------------ Camera response Types----------------------------
 type FaceDetectionBoundingBox = {
@@ -742,6 +743,13 @@ export default function AnalysisPage(): React.JSX.Element {
               </p>
             </div>
           </div>
+          {analysisFailed && cameraError && (
+            <div className="pt-3">
+              <h4 className="font-bold text-on-surface mb-2">Camera scan unsuccessful?</h4>
+              <p className="text-sm text-on-surface-variant leading-relaxed mb-4">
+                If you&apos;re having trouble with the live scan, our manual upload tool provides a more stable alternative for high-precision analysis.
+              </p>
+            </div>)}
         </div>
         {/* RIGHT SIDE */}
         <div className="lg:col-span-5 flex flex-col">
