@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   title: "Skindex — Precision Skin Science",
   description:
     "AI-driven skin analysis platform. Precision metrics for your unique skin profile, optimized for every tone.",
+  icons: {
+    icon: "/skindex-1.png",
+  },
 };
 
 export default function RootLayout({
